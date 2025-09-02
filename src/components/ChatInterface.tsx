@@ -16,22 +16,15 @@ interface Message {
   timestamp: Date;
 }
 
-export default function ChatInterface() {
-  const [mounted, setMounted] = useState(false);
-  const [messages, setMessages] = useState<Message[]>([]);
-
-  // Handle client-side mounting to prevent hydration mismatch
-  useEffect(() => {
-    setMounted(true);
-    setMessages([
-      {
-        id: "1",
-        content: "Hello! I'm your AI assistant. How can I help you today?",
-        role: "assistant",
-        timestamp: new Date(),
-      },
-    ]);
-  }, []);
+export  function ChatInterface() {
+  const [messages, setMessages] = useState<Message[]>([
+    {
+      id: "1",
+      content: "Hello! I'm your AI assistant. How can I help you today?",
+      role: "assistant",
+      timestamp: new Date(),
+    },
+  ]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
@@ -64,25 +57,15 @@ export default function ChatInterface() {
     setInput("");
     setIsLoading(true);
 
-    // Create an empty assistant message that we'll update as we stream
-    const assistantMessageId = (Date.now() + 1).toString();
-    const assistantMessage: Message = {
-      id: assistantMessageId,
-      content: "",
-      role: "assistant",
-      timestamp: new Date(),
-    };
-
-    setMessages((prev) => [...prev, assistantMessage]);
-
     try {
-      const response = await fetch("/api/chat-direct", {
+      const response = await fetch("/api/chat", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
           message: userMessage.content,
+          history: messages,
         }),
       });
 
@@ -90,69 +73,25 @@ export default function ChatInterface() {
         throw new Error("Failed to get response");
       }
 
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
+      const data = await response.json();
 
-      if (!reader) {
-        throw new Error("No reader available");
-      }
+      const assistantMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        content: data.message,
+        role: "assistant",
+        timestamp: new Date(),
+      };
 
-      let accumulatedContent = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        
-        if (done) break;
-
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n');
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const jsonString = line.slice(6).trim();
-              if (jsonString) {
-                const data = JSON.parse(jsonString);
-                
-                if (data.error) {
-                  throw new Error(data.error);
-                }
-
-                if (data.content) {
-                  accumulatedContent += data.content;
-                  
-                  // Update the message content
-                  setMessages((prev) =>
-                    prev.map((msg) =>
-                      msg.id === assistantMessageId
-                        ? { ...msg, content: accumulatedContent }
-                        : msg
-                    )
-                  );
-                }
-
-                if (data.done) {
-                  break;
-                }
-              }
-            } catch (parseError) {
-              console.error("Failed to parse line:", line, parseError);
-              // Don't break the loop, just skip this line
-            }
-          }
-        }
-      }
+      setMessages((prev) => [...prev, assistantMessage]);
     } catch (error) {
       console.error("Error:", error);
-      
-      // Update the assistant message with error
-      setMessages((prev) =>
-        prev.map((msg) =>
-          msg.id === assistantMessageId
-            ? { ...msg, content: "Sorry, I encountered an error. Please try again." }
-            : msg
-        )
-      );
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        content: "Sorry, I encountered an error. Please try again.",
+        role: "assistant",
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, errorMessage]);
     } finally {
       setIsLoading(false);
     }
@@ -206,11 +145,9 @@ export default function ChatInterface() {
                 }`}
               >
                 <p className="whitespace-pre-wrap">{message.content}</p>
-                {mounted && (
-                  <p className="text-xs opacity-70 mt-2">
-                    {message.timestamp.toLocaleTimeString()}
-                  </p>
-                )}
+                <p className="text-xs opacity-70 mt-2">
+                  {message.timestamp.toLocaleTimeString()}
+                </p>
               </Card>
             </div>
           ))}
