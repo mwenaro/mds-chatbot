@@ -8,6 +8,9 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Send, Bot, User } from "lucide-react";
+import AIProviderSelector from "./ai-provider-selector";
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 interface Message {
   id: string;
@@ -19,6 +22,7 @@ interface Message {
 export default function ChatInterface() {
   const [mounted, setMounted] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [aiProvider, setAiProvider] = useState("chat-groq"); // Default to reliable Groq
 
   // Handle client-side mounting to prevent hydration mismatch
   useEffect(() => {
@@ -76,7 +80,7 @@ export default function ChatInterface() {
     setMessages((prev) => [...prev, assistantMessage]);
 
     try {
-      const response = await fetch("/api/chat-direct", {
+      const response = await fetch(`/api/${aiProvider}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -179,6 +183,17 @@ export default function ChatInterface() {
         </Badge>
       </div>
 
+      {/* AI Provider Selector */}
+      <div className="px-4 py-2 border-b bg-muted/50">
+        <div className="flex items-center justify-between">
+          <span className="text-sm text-muted-foreground">AI Provider:</span>
+          <AIProviderSelector 
+            currentProvider={aiProvider} 
+            onProviderChange={setAiProvider} 
+          />
+        </div>
+      </div>
+
       {/* Messages */}
       <ScrollArea className="flex-1 p-4" ref={scrollAreaRef}>
         <div className="space-y-4">
@@ -205,7 +220,77 @@ export default function ChatInterface() {
                     : "bg-muted"
                 }`}
               >
-                <p className="whitespace-pre-wrap">{message.content}</p>
+                <div className="markdown-content">
+                  <ReactMarkdown 
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      // Customize rendering for better chat appearance
+                      p: ({ children }) => <p className="mb-2 last:mb-0 leading-relaxed">{children}</p>,
+                      ul: ({ children }) => <ul className="mb-2 ml-4 list-disc space-y-1">{children}</ul>,
+                      ol: ({ children }) => <ol className="mb-2 ml-4 list-decimal space-y-1">{children}</ol>,
+                      li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+                      code: ({ children, className }) => {
+                        const isInline = !className;
+                        return isInline ? (
+                          <code className="bg-muted/50 px-1.5 py-0.5 rounded text-sm font-mono">
+                            {children}
+                          </code>
+                        ) : (
+                          <pre className="bg-muted/30 p-3 rounded-md overflow-x-auto mb-2">
+                            <code className="text-sm font-mono block">
+                              {children}
+                            </code>
+                          </pre>
+                        );
+                      },
+                      pre: ({ children }) => <div className="mb-2">{children}</div>,
+                      strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
+                      em: ({ children }) => <em className="italic">{children}</em>,
+                      blockquote: ({ children }) => (
+                        <blockquote className="border-l-4 border-muted-foreground/30 pl-4 italic mb-2 text-muted-foreground">
+                          {children}
+                        </blockquote>
+                      ),
+                      h1: ({ children }) => <h1 className="text-lg font-bold mb-2 text-foreground">{children}</h1>,
+                      h2: ({ children }) => <h2 className="text-base font-semibold mb-2 text-foreground">{children}</h2>,
+                      h3: ({ children }) => <h3 className="text-sm font-semibold mb-1 text-foreground">{children}</h3>,
+                      a: ({ children, href }) => (
+                        <a 
+                          href={href} 
+                          target="_blank" 
+                          rel="noopener noreferrer" 
+                          className="text-primary hover:underline"
+                        >
+                          {children}
+                        </a>
+                      ),
+                      table: ({ children }) => (
+                        <div className="overflow-x-auto mb-2">
+                          <table className="min-w-full border border-muted">
+                            {children}
+                          </table>
+                        </div>
+                      ),
+                      thead: ({ children }) => (
+                        <thead className="bg-muted/50">
+                          {children}
+                        </thead>
+                      ),
+                      th: ({ children }) => (
+                        <th className="border border-muted px-2 py-1 text-left font-semibold">
+                          {children}
+                        </th>
+                      ),
+                      td: ({ children }) => (
+                        <td className="border border-muted px-2 py-1">
+                          {children}
+                        </td>
+                      ),
+                    }}
+                  >
+                    {message.content}
+                  </ReactMarkdown>
+                </div>
                 {mounted && (
                   <p className="text-xs opacity-70 mt-2">
                     {message.timestamp.toLocaleTimeString()}
