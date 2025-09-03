@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 
 interface AIProviderSelectorProps {
