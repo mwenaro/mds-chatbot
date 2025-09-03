@@ -35,14 +35,10 @@ interface SpeechRecognition extends EventTarget {
   lang: string;
   start(): void;
   stop(): void;
-  onstart: ((this: SpeechRecognition, ev: Event) => any) | null;
-  onresult: ((this: SpeechRecognition, ev: SpeechRecognitionEvent) => any) | null;
-  onend: ((this: SpeechRecognition, ev: Event) => any) | null;
-  onerror: ((this: SpeechRecognition, ev: SpeechRecognitionErrorEvent) => any) | null;
-}
-
-interface SpeechRecognitionConstructor {
-  new(): SpeechRecognition;
+  onstart: ((this: SpeechRecognition, ev: Event) => void) | null;
+  onresult: ((this: SpeechRecognition, ev: SpeechRecognitionEvent) => void) | null;
+  onend: ((this: SpeechRecognition, ev: Event) => void) | null;
+  onerror: ((this: SpeechRecognition, ev: SpeechRecognitionErrorEvent) => void) | null;
 }
 
 interface UseSpeechReturn {
@@ -119,7 +115,7 @@ export function useSpeech(): UseSpeechReturn {
           }
         };
 
-      } catch (error) {
+      } catch {
         // Fallback for browsers that don't support permissions API
         console.log('Permissions API not supported, will check on first use');
         setHasPermission(null);
@@ -127,8 +123,15 @@ export function useSpeech(): UseSpeechReturn {
     };
 
     if (speechRecognitionSupported) {
-      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-      recognitionRef.current = new SpeechRecognition();
+      const windowWithSpeechRecognition = window as typeof window & {
+        SpeechRecognition?: new() => SpeechRecognition;
+        webkitSpeechRecognition?: new() => SpeechRecognition;
+      };
+      const SpeechRecognitionClass = windowWithSpeechRecognition.SpeechRecognition || windowWithSpeechRecognition.webkitSpeechRecognition;
+      
+      if (SpeechRecognitionClass) {
+        recognitionRef.current = new SpeechRecognitionClass();
+      }
       
       if (recognitionRef.current) {
         recognitionRef.current.continuous = false;
@@ -222,17 +225,19 @@ export function useSpeech(): UseSpeechReturn {
       setError(null);
       return true;
       
-    } catch (permissionError: any) {
+    } catch (permissionError: unknown) {
       console.error('Permission request error:', permissionError);
       
       let errorMessage = 'Microphone access denied.';
       
-      if (permissionError.name === 'NotAllowedError') {
-        errorMessage = 'Microphone access denied. Please click "Allow" when prompted by your browser.';
-      } else if (permissionError.name === 'NotFoundError') {
-        errorMessage = 'No microphone found. Please connect a microphone and try again.';
-      } else if (permissionError.name === 'NotSupportedError') {
-        errorMessage = 'Microphone not supported by this browser. Try Chrome, Edge, or Safari.';
+      if (permissionError instanceof DOMException) {
+        if (permissionError.name === 'NotAllowedError') {
+          errorMessage = 'Microphone access denied. Please click "Allow" when prompted by your browser.';
+        } else if (permissionError.name === 'NotFoundError') {
+          errorMessage = 'No microphone found. Please connect a microphone and try again.';
+        } else if (permissionError.name === 'NotSupportedError') {
+          errorMessage = 'Microphone not supported by this browser. Try Chrome, Edge, or Safari.';
+        }
       }
       
       setHasPermission(false);
@@ -260,14 +265,16 @@ export function useSpeech(): UseSpeechReturn {
     
     try {
       recognitionRef.current.start();
-    } catch (err: any) {
+    } catch (err: unknown) {
       let errorMessage = 'Failed to start speech recognition';
       
-      if (err.name === 'InvalidStateError') {
-        errorMessage = 'Speech recognition is already running. Please wait and try again.';
-      } else if (err.name === 'NotAllowedError') {
-        errorMessage = 'Microphone access denied. Please allow microphone permissions.';
-        setHasPermission(false);
+      if (err instanceof DOMException) {
+        if (err.name === 'InvalidStateError') {
+          errorMessage = 'Speech recognition is already running. Please wait and try again.';
+        } else if (err.name === 'NotAllowedError') {
+          errorMessage = 'Microphone access denied. Please allow microphone permissions.';
+          setHasPermission(false);
+        }
       }
       
       setError(errorMessage);

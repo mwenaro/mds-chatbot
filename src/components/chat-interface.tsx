@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -9,8 +9,8 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Send, Bot, User, Mic, MicOff, Volume2, VolumeX } from "lucide-react";
 import AIProviderSelector from "./ai-provider-selector";
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { useSpeech } from "@/hooks/use-speech";
 
 interface Message {
@@ -41,7 +41,7 @@ export default function ChatInterface() {
     stopSpeaking,
     requestPermission,
     transcript,
-    error: speechError
+    error: speechError,
   } = useSpeech();
 
   // Handle client-side mounting to prevent hydration mismatch
@@ -50,12 +50,147 @@ export default function ChatInterface() {
     setMessages([
       {
         id: "1",
-        content: "Hello! I'm your AI assistant. How can I help you today? You can click the microphone to speak with me!",
+        content:
+          "Hello! I'm your AI assistant. How can I help you today? You can click the microphone to speak with me!",
         role: "assistant",
         timestamp: new Date(),
       },
     ]);
   }, []);
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
+
+  const scrollToBottom = () => {
+    if (scrollAreaRef.current) {
+      const scrollElement = scrollAreaRef.current.querySelector(
+        "[data-radix-scroll-area-viewport]"
+      );
+      if (scrollElement) {
+        scrollElement.scrollTop = scrollElement.scrollHeight;
+      }
+    }
+  };
+
+  const submitMessage = useCallback(
+    async (messageText: string = input.trim()) => {
+      if (!messageText || isLoading) return;
+
+      const userMessage: Message = {
+        id: Date.now().toString(),
+        content: messageText,
+        role: "user",
+        timestamp: new Date(),
+      };
+
+      setMessages((prev) => [...prev, userMessage]);
+      setInput("");
+      setIsLoading(true);
+
+      // Create an empty assistant message that we'll update as we stream
+      const assistantMessageId = (Date.now() + 1).toString();
+      const assistantMessage: Message = {
+        id: assistantMessageId,
+        content: "",
+        role: "assistant",
+        timestamp: new Date(),
+      };
+
+      setMessages((prev) => [...prev, assistantMessage]);
+
+      try {
+        const response = await fetch(`/api/${aiProvider}`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            message: userMessage.content,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error("Failed to get response");
+        }
+
+        const reader = response.body?.getReader();
+        const decoder = new TextDecoder();
+
+        if (!reader) {
+          throw new Error("No reader available");
+        }
+
+        let accumulatedContent = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+
+          if (done) break;
+
+          const chunk = decoder.decode(value);
+          const lines = chunk.split("\n");
+
+          for (const line of lines) {
+            if (line.startsWith("data: ")) {
+              try {
+                const jsonString = line.slice(6).trim();
+                if (jsonString) {
+                  const data = JSON.parse(jsonString);
+
+                  if (data.error) {
+                    throw new Error(data.error);
+                  }
+
+                  if (data.content) {
+                    accumulatedContent += data.content;
+
+                    // Update the message content
+                    setMessages((prev) =>
+                      prev.map((msg) =>
+                        msg.id === assistantMessageId
+                          ? { ...msg, content: accumulatedContent }
+                          : msg
+                      )
+                    );
+                  }
+
+                  if (data.done) {
+                    break;
+                  }
+                }
+              } catch (parseError) {
+                console.error("Failed to parse line:", line, parseError);
+                // Don't break the loop, just skip this line
+              }
+            }
+          }
+        }
+
+        // Auto-speak the response if enabled
+        if (autoSpeak && accumulatedContent) {
+          speak(accumulatedContent);
+        }
+      } catch (error) {
+        console.error("Error:", error);
+
+        // Update the assistant message with error
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === assistantMessageId
+              ? {
+                  ...msg,
+                  content: "Sorry, I encountered an error. Please try again.",
+                }
+              : msg
+          )
+        );
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [input, isLoading, aiProvider, autoSpeak, speak]
+  );
 
   // Handle speech transcript
   useEffect(() => {
@@ -66,133 +201,7 @@ export default function ChatInterface() {
         submitMessage(transcript);
       }
     }
-  }, [transcript, isListening]);
-
-  const scrollToBottom = () => {
-    if (scrollAreaRef.current) {
-      const scrollElement = scrollAreaRef.current.querySelector('[data-radix-scroll-area-viewport]');
-      if (scrollElement) {
-        scrollElement.scrollTop = scrollElement.scrollHeight;
-      }
-    }
-  };
-
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
-
-  const submitMessage = async (messageText: string = input.trim()) => {
-    if (!messageText || isLoading) return;
-
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      content: messageText,
-      role: "user",
-      timestamp: new Date(),
-    };
-
-    setMessages((prev) => [...prev, userMessage]);
-    setInput("");
-    setIsLoading(true);
-
-    // Create an empty assistant message that we'll update as we stream
-    const assistantMessageId = (Date.now() + 1).toString();
-    const assistantMessage: Message = {
-      id: assistantMessageId,
-      content: "",
-      role: "assistant",
-      timestamp: new Date(),
-    };
-
-    setMessages((prev) => [...prev, assistantMessage]);
-
-    try {
-      const response = await fetch(`/api/${aiProvider}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          message: userMessage.content,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error("Failed to get response");
-      }
-
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
-
-      if (!reader) {
-        throw new Error("No reader available");
-      }
-
-      let accumulatedContent = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        
-        if (done) break;
-
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n');
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const jsonString = line.slice(6).trim();
-              if (jsonString) {
-                const data = JSON.parse(jsonString);
-                
-                if (data.error) {
-                  throw new Error(data.error);
-                }
-
-                if (data.content) {
-                  accumulatedContent += data.content;
-                  
-                  // Update the message content
-                  setMessages((prev) =>
-                    prev.map((msg) =>
-                      msg.id === assistantMessageId
-                        ? { ...msg, content: accumulatedContent }
-                        : msg
-                    )
-                  );
-                }
-
-                if (data.done) {
-                  break;
-                }
-              }
-            } catch (parseError) {
-              console.error("Failed to parse line:", line, parseError);
-              // Don't break the loop, just skip this line
-            }
-          }
-        }
-      }
-
-      // Auto-speak the response if enabled
-      if (autoSpeak && accumulatedContent) {
-        speak(accumulatedContent);
-      }
-    } catch (error) {
-      console.error("Error:", error);
-      
-      // Update the assistant message with error
-      setMessages((prev) =>
-        prev.map((msg) =>
-          msg.id === assistantMessageId
-            ? { ...msg, content: "Sorry, I encountered an error. Please try again." }
-            : msg
-        )
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  }, [transcript, isListening, submitMessage]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -205,14 +214,16 @@ export default function ChatInterface() {
     } else {
       // Check if online
       if (!navigator.onLine) {
-        alert('Speech recognition requires an internet connection. Please check your connection and try again.');
+        alert(
+          "Speech recognition requires an internet connection. Please check your connection and try again."
+        );
         return;
       }
-      
+
       if (isSpeaking) {
         stopSpeaking();
       }
-      
+
       // startListening will handle permission checking automatically
       startListening();
     }
@@ -256,9 +267,9 @@ export default function ChatInterface() {
       <div className="px-4 py-2 border-b bg-muted/50">
         <div className="flex items-center justify-between">
           <span className="text-sm text-muted-foreground">AI Provider:</span>
-          <AIProviderSelector 
-            currentProvider={aiProvider} 
-            onProviderChange={setAiProvider} 
+          <AIProviderSelector
+            currentProvider={aiProvider}
+            onProviderChange={setAiProvider}
           />
         </div>
       </div>
@@ -290,14 +301,28 @@ export default function ChatInterface() {
                 }`}
               >
                 <div className="markdown-content">
-                  <ReactMarkdown 
+                  <ReactMarkdown
                     remarkPlugins={[remarkGfm]}
                     components={{
                       // Customize rendering for better chat appearance
-                      p: ({ children }) => <p className="mb-2 last:mb-0 leading-relaxed">{children}</p>,
-                      ul: ({ children }) => <ul className="mb-2 ml-4 list-disc space-y-1">{children}</ul>,
-                      ol: ({ children }) => <ol className="mb-2 ml-4 list-decimal space-y-1">{children}</ol>,
-                      li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+                      p: ({ children }) => (
+                        <p className="mb-2 last:mb-0 leading-relaxed">
+                          {children}
+                        </p>
+                      ),
+                      ul: ({ children }) => (
+                        <ul className="mb-2 ml-4 list-disc space-y-1">
+                          {children}
+                        </ul>
+                      ),
+                      ol: ({ children }) => (
+                        <ol className="mb-2 ml-4 list-decimal space-y-1">
+                          {children}
+                        </ol>
+                      ),
+                      li: ({ children }) => (
+                        <li className="leading-relaxed">{children}</li>
+                      ),
                       code: ({ children, className }) => {
                         const isInline = !className;
                         return isInline ? (
@@ -312,22 +337,42 @@ export default function ChatInterface() {
                           </pre>
                         );
                       },
-                      pre: ({ children }) => <div className="mb-2">{children}</div>,
-                      strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
-                      em: ({ children }) => <em className="italic">{children}</em>,
+                      pre: ({ children }) => (
+                        <div className="mb-2">{children}</div>
+                      ),
+                      strong: ({ children }) => (
+                        <strong className="font-semibold text-foreground">
+                          {children}
+                        </strong>
+                      ),
+                      em: ({ children }) => (
+                        <em className="italic">{children}</em>
+                      ),
                       blockquote: ({ children }) => (
                         <blockquote className="border-l-4 border-muted-foreground/30 pl-4 italic mb-2 text-muted-foreground">
                           {children}
                         </blockquote>
                       ),
-                      h1: ({ children }) => <h1 className="text-lg font-bold mb-2 text-foreground">{children}</h1>,
-                      h2: ({ children }) => <h2 className="text-base font-semibold mb-2 text-foreground">{children}</h2>,
-                      h3: ({ children }) => <h3 className="text-sm font-semibold mb-1 text-foreground">{children}</h3>,
+                      h1: ({ children }) => (
+                        <h1 className="text-lg font-bold mb-2 text-foreground">
+                          {children}
+                        </h1>
+                      ),
+                      h2: ({ children }) => (
+                        <h2 className="text-base font-semibold mb-2 text-foreground">
+                          {children}
+                        </h2>
+                      ),
+                      h3: ({ children }) => (
+                        <h3 className="text-sm font-semibold mb-1 text-foreground">
+                          {children}
+                        </h3>
+                      ),
                       a: ({ children, href }) => (
-                        <a 
-                          href={href} 
-                          target="_blank" 
-                          rel="noopener noreferrer" 
+                        <a
+                          href={href}
+                          target="_blank"
+                          rel="noopener noreferrer"
                           className="text-primary hover:underline"
                         >
                           {children}
@@ -341,9 +386,7 @@ export default function ChatInterface() {
                         </div>
                       ),
                       thead: ({ children }) => (
-                        <thead className="bg-muted/50">
-                          {children}
-                        </thead>
+                        <thead className="bg-muted/50">{children}</thead>
                       ),
                       th: ({ children }) => (
                         <th className="border border-muted px-2 py-1 text-left font-semibold">
@@ -367,18 +410,21 @@ export default function ChatInterface() {
                     </p>
                   )}
                   {/* Speak button for assistant messages */}
-                  {mounted && speechSupported && message.role === "assistant" && message.content && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => speak(message.content)}
-                      disabled={isSpeaking}
-                      className="ml-2 h-6 px-2 text-xs"
-                      title="Speak this message"
-                    >
-                      <Volume2 className="h-3 w-3" />
-                    </Button>
-                  )}
+                  {mounted &&
+                    speechSupported &&
+                    message.role === "assistant" &&
+                    message.content && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => speak(message.content)}
+                        disabled={isSpeaking}
+                        className="ml-2 h-6 px-2 text-xs"
+                        title="Speak this message"
+                      >
+                        <Volume2 className="h-3 w-3" />
+                      </Button>
+                    )}
                 </div>
               </Card>
             </div>
@@ -425,7 +471,7 @@ export default function ChatInterface() {
                 </div>
               </div>
             )}
-            
+
             {/* Only show retry if permission was explicitly denied */}
             {hasPermission === false && (
               <div className="mb-2 p-2 bg-red-50 border border-red-200 rounded-md">
@@ -446,7 +492,9 @@ export default function ChatInterface() {
             )}
 
             {/* Active Status - only show when relevant */}
-            {(isListening || isSpeaking || (hasPermission === true && !speechError)) && (
+            {(isListening ||
+              isSpeaking ||
+              (hasPermission === true && !speechError)) && (
               <div className="flex items-center justify-between text-sm">
                 <div className="flex items-center gap-2">
                   {isListening && (
@@ -460,34 +508,37 @@ export default function ChatInterface() {
                     </Badge>
                   )}
                   {autoSpeak && !isSpeaking && hasPermission === true && (
-                    <Badge variant="outline">
-                      🔊 Auto-speak enabled
-                    </Badge>
+                    <Badge variant="outline">🔊 Auto-speak enabled</Badge>
                   )}
-                  {hasPermission === true && !isListening && !isSpeaking && !autoSpeak && (
-                    <Badge variant="outline" className="text-green-600">
-                      🎤 Voice ready
-                    </Badge>
-                  )}
+                  {hasPermission === true &&
+                    !isListening &&
+                    !isSpeaking &&
+                    !autoSpeak && (
+                      <Badge variant="outline" className="text-green-600">
+                        🎤 Voice ready
+                      </Badge>
+                    )}
                 </div>
               </div>
             )}
 
             {/* Error display */}
             {speechError && (
-              <div className="text-red-500 text-xs mt-1">
-                ⚠️ {speechError}
-              </div>
+              <div className="text-red-500 text-xs mt-1">⚠️ {speechError}</div>
             )}
           </div>
         )}
-        
+
         <div className="flex gap-2">
           <form onSubmit={handleSubmit} className="flex gap-2 flex-1">
             <Input
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder={isListening ? "Listening..." : "Type your message or click the mic..."}
+              placeholder={
+                isListening
+                  ? "Listening..."
+                  : "Type your message or click the mic..."
+              }
               disabled={isLoading}
               className="flex-1"
             />
@@ -495,7 +546,7 @@ export default function ChatInterface() {
               <Send className="h-4 w-4" />
             </Button>
           </form>
-          
+
           {/* Audio Controls */}
           {mounted && (
             <div className="flex gap-1">
@@ -508,8 +559,8 @@ export default function ChatInterface() {
                     onClick={handleMicClick}
                     disabled={isLoading}
                     title={
-                      isListening 
-                        ? "Stop listening" 
+                      isListening
+                        ? "Stop listening"
                         : hasPermission === true
                         ? "Start voice input"
                         : hasPermission === false
@@ -517,18 +568,32 @@ export default function ChatInterface() {
                         : "Start voice input (will request permission)"
                     }
                   >
-                    {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                    {isListening ? (
+                      <MicOff className="h-4 w-4" />
+                    ) : (
+                      <Mic className="h-4 w-4" />
+                    )}
                   </Button>
-                  
+
                   <Button
                     type="button"
                     variant={autoSpeak ? "default" : "outline"}
                     size="icon"
                     onClick={handleSpeakerToggle}
                     disabled={isLoading}
-                    title={isSpeaking ? "Stop speaking" : autoSpeak ? "Disable auto-speak" : "Enable auto-speak"}
+                    title={
+                      isSpeaking
+                        ? "Stop speaking"
+                        : autoSpeak
+                        ? "Disable auto-speak"
+                        : "Enable auto-speak"
+                    }
                   >
-                    {isSpeaking ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+                    {isSpeaking ? (
+                      <VolumeX className="h-4 w-4" />
+                    ) : (
+                      <Volume2 className="h-4 w-4" />
+                    )}
                   </Button>
                 </>
               ) : (
