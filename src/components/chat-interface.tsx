@@ -34,10 +34,12 @@ export default function ChatInterface() {
     isListening,
     isSpeaking,
     isSupported: speechSupported,
+    hasPermission,
     startListening,
     stopListening,
     speak,
     stopSpeaking,
+    requestPermission,
     transcript,
     error: speechError
   } = useSpeech();
@@ -210,6 +212,8 @@ export default function ChatInterface() {
       if (isSpeaking) {
         stopSpeaking();
       }
+      
+      // startListening will handle permission checking automatically
       startListening();
     }
   };
@@ -400,28 +404,78 @@ export default function ChatInterface() {
 
       {/* Input */}
       <div className="p-4 border-t">
-        {/* Speech Status */}
+        {/* Speech Status and Permission */}
         {mounted && speechSupported && (
-          <div className="mb-2 flex items-center justify-between text-sm">
-            <div className="flex items-center gap-2">
-              {isListening && (
-                <Badge variant="destructive" className="animate-pulse">
-                  🎤 Listening...
-                </Badge>
-              )}
-              {isSpeaking && (
-                <Badge variant="secondary" className="animate-pulse">
-                  🔊 Speaking...
-                </Badge>
-              )}
-              {autoSpeak && !isSpeaking && (
-                <Badge variant="outline">
-                  🔊 Auto-speak enabled
-                </Badge>
-              )}
-            </div>
+          <div className="mb-2">
+            {/* Only show permission request if explicitly needed */}
+            {hasPermission === null && (
+              <div className="mb-2 p-2 bg-blue-50 border border-blue-200 rounded-md">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-blue-800">
+                    🎤 Microphone permission needed for voice chat
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={requestPermission}
+                    className="ml-2"
+                  >
+                    Allow Microphone
+                  </Button>
+                </div>
+              </div>
+            )}
+            
+            {/* Only show retry if permission was explicitly denied */}
+            {hasPermission === false && (
+              <div className="mb-2 p-2 bg-red-50 border border-red-200 rounded-md">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-red-800">
+                    ❌ Microphone access denied
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={requestPermission}
+                    className="ml-2"
+                  >
+                    Try Again
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Active Status - only show when relevant */}
+            {(isListening || isSpeaking || (hasPermission === true && !speechError)) && (
+              <div className="flex items-center justify-between text-sm">
+                <div className="flex items-center gap-2">
+                  {isListening && (
+                    <Badge variant="destructive" className="animate-pulse">
+                      🎤 Listening...
+                    </Badge>
+                  )}
+                  {isSpeaking && (
+                    <Badge variant="secondary" className="animate-pulse">
+                      🔊 Speaking...
+                    </Badge>
+                  )}
+                  {autoSpeak && !isSpeaking && hasPermission === true && (
+                    <Badge variant="outline">
+                      🔊 Auto-speak enabled
+                    </Badge>
+                  )}
+                  {hasPermission === true && !isListening && !isSpeaking && !autoSpeak && (
+                    <Badge variant="outline" className="text-green-600">
+                      🎤 Voice ready
+                    </Badge>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Error display */}
             {speechError && (
-              <div className="text-red-500 text-xs max-w-md text-right">
+              <div className="text-red-500 text-xs mt-1">
                 ⚠️ {speechError}
               </div>
             )}
@@ -453,7 +507,15 @@ export default function ChatInterface() {
                     size="icon"
                     onClick={handleMicClick}
                     disabled={isLoading}
-                    title={isListening ? "Stop listening" : "Start voice input"}
+                    title={
+                      isListening 
+                        ? "Stop listening" 
+                        : hasPermission === true
+                        ? "Start voice input"
+                        : hasPermission === false
+                        ? "Microphone access denied - click 'Try Again' above"
+                        : "Start voice input (will request permission)"
+                    }
                   >
                     {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
                   </Button>
