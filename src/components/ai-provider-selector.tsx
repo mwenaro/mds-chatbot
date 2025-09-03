@@ -25,13 +25,6 @@ export default function AIProviderSelector({ onProviderChange, currentProvider }
       setup: "No setup required - for testing"
     },
     { 
-      id: "chat-free", 
-      name: "Hugging Face", 
-      description: "Free (Experimental)", 
-      color: "bg-blue-500",
-      setup: "API key configured - may have issues"
-    },
-    { 
       id: "chat-direct", 
       name: "OpenAI", 
       description: "Premium (Requires Credits)", 
