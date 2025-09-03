@@ -7,8 +7,10 @@
     "build": "next build --turbopack",
     "start": "next start",
     "lint": "eslint",
-    "validate-env": "node scripts/validate-env.js",
-    "setup": "npm run validate-env && npm run dev"
+    "validate-env": "node scripts/validate-env-improved.js",
+    "create-env-template": "node scripts/validate-env-improved.js template",
+    "setup": "npm run validate-env && npm run dev",
+    "type-check": "tsc --noEmit"
   },
   "dependencies": {
     "@clerk/nextjs": "^6.31.8",

@@ -324,7 +324,6 @@ export default function ChatInterfaceWithStorage() {
       {showHistory && (
         <ConversationHistory
           onSelectConversation={handleSelectConversation}
-          onNewConversation={handleNewConversation}
           currentConversationId={currentConversation?.id}
         />
       )}
