@@ -104,7 +104,7 @@ export class ConversationExporter {
   /**
    * Validate import data
    */
-  static validateImportData(data: any): { valid: boolean; errors: string[] } {
+  static validateImportData(data: unknown): { valid: boolean; errors: string[] } {
     const errors: string[] = [];
 
     if (!data || typeof data !== 'object') {
@@ -112,26 +112,33 @@ export class ConversationExporter {
       return { valid: false, errors };
     }
 
-    if (!data.version) {
+    // Type guard for ExportFormat
+    const exportData = data as Partial<ExportFormat>;
+
+    if (!('version' in exportData) || !exportData.version) {
       errors.push('Missing version information');
     }
 
-    if (!Array.isArray(data.conversations)) {
+    if (!('conversations' in exportData) || !Array.isArray(exportData.conversations)) {
       errors.push('Invalid conversations data');
       return { valid: false, errors };
     }
 
     // Validate each conversation
-    data.conversations.forEach((conv: any, index: number) => {
-      if (!conv.id) errors.push(`Conversation ${index + 1}: Missing ID`);
-      if (!conv.title) errors.push(`Conversation ${index + 1}: Missing title`);
-      if (!Array.isArray(conv.messages)) {
+    exportData.conversations.forEach((conv, index) => {
+      if (!conv || typeof conv !== 'object') return;
+      const conversation = conv as Partial<ConversationExport>;
+      if (!('id' in conversation) || !conversation.id) errors.push(`Conversation ${index + 1}: Missing ID`);
+      if (!('title' in conversation) || !conversation.title) errors.push(`Conversation ${index + 1}: Missing title`);
+      if (!('messages' in conversation) || !Array.isArray(conversation.messages)) {
         errors.push(`Conversation ${index + 1}: Invalid messages data`);
       } else {
-        conv.messages.forEach((msg: any, msgIndex: number) => {
-          if (!msg.id) errors.push(`Conversation ${index + 1}, Message ${msgIndex + 1}: Missing ID`);
-          if (!msg.content) errors.push(`Conversation ${index + 1}, Message ${msgIndex + 1}: Missing content`);
-          if (!['user', 'assistant'].includes(msg.role)) {
+        conversation.messages.forEach((msg, msgIndex) => {
+          if (!msg || typeof msg !== 'object') return;
+          const message = msg as Partial<IMessage>;
+          if (!('id' in message) || !message.id) errors.push(`Conversation ${index + 1}, Message ${msgIndex + 1}: Missing ID`);
+          if (!('content' in message) || !message.content) errors.push(`Conversation ${index + 1}, Message ${msgIndex + 1}: Missing content`);
+          if (!('role' in message) || !['user', 'assistant'].includes(message.role as string)) {
             errors.push(`Conversation ${index + 1}, Message ${msgIndex + 1}: Invalid role`);
           }
         });
@@ -166,17 +173,6 @@ export class ConversationExporter {
           current: conv.title
         });
 
-        // Convert back to the format expected by UnifiedConversationService
-        const conversation: Partial<UnifiedConversation> = {
-          title: conv.title,
-          messages: conv.messages.map(msg => ({
-            ...msg,
-            timestamp: new Date(msg.timestamp)
-          })),
-          aiProvider: conv.aiProvider,
-          createdAt: new Date(conv.createdAt),
-          updatedAt: new Date(conv.updatedAt)
-        };
 
         // Import logic would go here - this depends on your storage implementation
         // For now, we'll just count as successful

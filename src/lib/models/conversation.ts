@@ -1,7 +1,8 @@
 import mongoose, { Document, Schema } from 'mongoose';
-import { IMessage as BaseIMessage, IConversation as BaseIConversation } from '@/lib/types/conversation';
+// import { IMessage as BaseIMessage, IConversation as BaseIConversation } from '@/lib/types/conversation';
+import { IMessage , IConversation as BaseIConversation } from '@/lib/types/conversation';
 
-export interface IMessage extends BaseIMessage {}
+// export interface IMessage extends BaseIMessage {}
 
 export interface IConversation extends Document, Omit<BaseIConversation, 'userId'> {
   _id: mongoose.Types.ObjectId;
@@ -21,10 +22,7 @@ const MessageSchema = new Schema<IMessage>({
     type: String,
     enum: ['user', 'assistant'],
     required: true,
-  },
-  timestamp: {
-    type: Date,
-    default: Date.now,
+  default: 'user',
   },
 });
 

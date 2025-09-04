@@ -188,9 +188,11 @@ export function useEnvValidation() {
   };
 }
 
-export default {
+const envValidation = {
   validateEnvironment,
   getEnvStatus,
   createEnvTemplate,
   useEnvValidation,
 };
+
+export default envValidation;

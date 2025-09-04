@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState,  useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
@@ -11,7 +11,7 @@ import {
   Filter, 
   Calendar, 
   MessageSquare, 
-  Bot,
+  // Bot,
   Download,
   Upload,
   X,
@@ -67,7 +67,7 @@ export default function ConversationSearch({
 
   // Filter and sort conversations
   const filteredConversations = useMemo(() => {
-    let filtered = conversations.filter(conversation => {
+    const filtered = conversations.filter(conversation => {
       // Text search (title and message content)
       if (filters.text) {
         const searchText = filters.text.toLowerCase();
@@ -256,7 +256,7 @@ export default function ConversationSearch({
                 <label className="text-sm font-medium mb-2 block">Date Range</label>
                 <select
                   value={filters.dateRange}
-                  onChange={(e) => setFilters(prev => ({ ...prev, dateRange: e.target.value as any }))}
+                  onChange={(e) => setFilters(prev => ({ ...prev, dateRange: e.target.value as 'all' | 'today' | 'week' | 'month' | 'year' }))}
                   className="w-full p-2 border rounded-md bg-background"
                 >
                   <option value="all">All Time</option>

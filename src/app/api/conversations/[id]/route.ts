@@ -4,6 +4,7 @@ import { Conversation } from '@/lib/models/conversation';
 import { getUserContext } from '@/lib/auth-utils';
 import mongoose from 'mongoose';
 
+
 interface RouteParams {
   params: Promise<{
     id: string;
@@ -77,7 +78,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    const updateData: any = {};
+    const updateData: { messages?: unknown[]; title?: string; aiProvider?: string } = {};
     if (messages !== undefined) updateData.messages = messages;
     if (title !== undefined) updateData.title = title;
     if (aiProvider !== undefined) updateData.aiProvider = aiProvider;

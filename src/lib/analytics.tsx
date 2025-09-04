@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { 
@@ -25,7 +25,7 @@ export type AnalyticsEvent = {
     responseTime?: number;
     errorType?: string;
     conversationId?: string;
-    [key: string]: any;
+    [key: string]: unknown;
   };
 };
 
@@ -202,9 +202,9 @@ class AnalyticsService {
       if (stored) {
         const parsed = JSON.parse(stored);
         return {
-          events: parsed.events.map((e: any) => ({
-            ...e,
-            timestamp: new Date(e.timestamp)
+          events: parsed.events.map((e: unknown) => ({
+            ...(e as { timestamp: string }),
+            timestamp: new Date((e as { timestamp: string }).timestamp)
           })),
           lastCleanup: new Date(parsed.lastCleanup)
         };
@@ -348,7 +348,7 @@ export default function AnalyticsDashboard({ className = "" }: AnalyticsDashboar
             <TrendingUp className="h-8 w-8 text-purple-500" />
             <div>
               <p className="text-2xl font-bold">{stats.todayMessages}</p>
-              <p className="text-sm text-muted-foreground">Today's Messages</p>
+               <p className="text-sm text-muted-foreground">Today&apos;s Messages</p>
             </div>
           </div>
         </Card>
