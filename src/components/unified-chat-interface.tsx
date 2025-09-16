@@ -3,28 +3,15 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { useUser } from '@clerk/nextjs';
+import AIProviderSelector from "./ai-provider-selector";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { MessageLoadingSkeleton } from "@/components/ui/loading-skeleton";
-import { 
-  Send, 
-  Bot, 
-  User, 
-  Mic, 
-  MicOff, 
-  Volume2, 
-  VolumeX, 
-  Save, 
-  Menu, 
-  AlertCircle,
-  CheckCircle,
-  RefreshCw 
-} from "lucide-react";
-import { useUser } from '@clerk/nextjs';
-import AIProviderSelector from "./ai-provider-selector";
+import { Send, Bot, User, Mic, MicOff, Volume2, VolumeX, Save, Menu, AlertCircle, CheckCircle, RefreshCw } from "lucide-react";
 import ConversationHistory from "./conversation-history";
 import AuthControls from "./auth-controls";
 import ReactMarkdown from "react-markdown";
@@ -169,7 +156,8 @@ export default function UnifiedChatInterface({
 
   // Auto-save functionality
   useEffect(() => {
-    if (!finalConfig.enableStorage || !finalConfig.autoSave || messages.length <= 1) {
+    // Only auto-save if signed in
+    if (!finalConfig.enableStorage || !finalConfig.autoSave || !isSignedIn || messages.length <= 1) {
       return;
     }
 
@@ -179,7 +167,7 @@ export default function UnifiedChatInterface({
         await UnifiedConversationService.saveMessages(
           currentConversation?.id || null,
           messages,
-          !!isSignedIn,
+          true, // always true since isSignedIn is checked above
           aiProvider
         );
         setSaveStatus('saved');
@@ -643,31 +631,7 @@ export default function UnifiedChatInterface({
                   </Button>
                 )}
                 
-                <AIProviderSelector 
-                  currentProvider={aiProvider} 
-                  onProviderChange={setAiProvider} 
-                />
-
-                {finalConfig.enableSpeech && speechSupported && (
-                  <div className="flex gap-1">
-                    <Button
-                      onClick={toggleListening}
-                      variant={isListening ? "default" : "outline"}
-                      size="sm"
-                      className={isListening ? "bg-red-500 hover:bg-red-600" : ""}
-                    >
-                      {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-                    </Button>
-
-                    <Button
-                      onClick={toggleSpeaking}
-                      variant={autoSpeak ? "default" : "outline"}
-                      size="sm"
-                    >
-                      {autoSpeak ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
-                    </Button>
-                  </div>
-                )}
+                {/* Provider selector moved to input area dropdown */}
               </div>
             </div>
           </div>
@@ -734,21 +698,60 @@ export default function UnifiedChatInterface({
           {/* Input area */}
           <div className="border-t bg-card p-4">
             <div className="max-w-4xl mx-auto flex gap-2">
-              <Input
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyPress={handleKeyPress}
-                placeholder="Type your message... (Enter to send, Shift+Enter for new line)"
-                disabled={isLoading}
-                className="flex-1"
-              />
-              <Button
-                onClick={() => submitMessage()}
-                disabled={!input.trim() || isLoading}
-                size="icon"
-              >
-                <Send className="h-4 w-4" />
-              </Button>
+              <div className="flex items-center gap-2 w-full">
+                {finalConfig.enableSpeech && speechSupported && (
+                  <Button
+                    onClick={toggleListening}
+                    variant={isListening ? "default" : "outline"}
+                    size="icon"
+                    className={isListening ? "bg-red-500 hover:bg-red-600" : ""}
+                    title={isListening ? "Stop Listening" : "Start Listening"}
+                  >
+                    {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                  </Button>
+                )}
+                {finalConfig.enableSpeech && speechSupported && (
+                  <Button
+                    onClick={toggleSpeaking}
+                    variant={autoSpeak ? "default" : "outline"}
+                    size="icon"
+                    title={autoSpeak ? "Disable Auto Speak" : "Enable Auto Speak"}
+                  >
+                    {autoSpeak ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+                  </Button>
+                )}
+                {/* Mode button placeholder, replace with your mode logic if needed */}
+                <div className="relative">
+                  <select
+                    value={aiProvider}
+                    onChange={e => setAiProvider(e.target.value)}
+                    className="appearance-none border rounded px-2 py-1 text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                    title="Select provider"
+                  >
+                    <option value="chat-groq">Groq (Llama 3.1)</option>
+                    <option value="chat-simple">Simple AI</option>
+                    <option value="chat-direct">OpenAI</option>
+                  </select>
+                  <span className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none">
+                    <Menu className="h-4 w-4 opacity-60" />
+                  </span>
+                </div>
+                <Input
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyPress={handleKeyPress}
+                  placeholder="Type your message... (Enter to send, Shift+Enter for new line)"
+                  disabled={isLoading}
+                  className="flex-1"
+                />
+                <Button
+                  onClick={() => submitMessage()}
+                  disabled={!input.trim() || isLoading}
+                  size="icon"
+                >
+                  <Send className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
 
             {finalConfig.enableSpeech && speechError && (
