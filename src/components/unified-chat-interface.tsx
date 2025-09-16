@@ -82,6 +82,7 @@ export default function UnifiedChatInterface({
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+    const inputRef = useRef<HTMLInputElement>(null);
   // Speech functionality (conditionally initialized)
   const speech = useSpeech();
   const {
@@ -321,10 +322,14 @@ export default function UnifiedChatInterface({
 
         if (!response.ok) {
           const errorText = await response.text();
+          // Detect if the response is HTML (e.g., Next.js 404 page)
+          if (response.status === 404 || /<html/i.test(errorText)) {
+            throw new Error(`API endpoint not found for provider '${aiProvider}'. Please check your configuration.`);
+          }
           throw new Error(`API request failed: ${response.status} ${errorText}`);
         }
 
-        const reader = response.body?.getReader();
+  const reader = response.body?.getReader();
         const decoder = new TextDecoder();
 
         if (!reader) {
@@ -400,22 +405,48 @@ export default function UnifiedChatInterface({
 
       } catch (error) {
         console.error("Chat error:", error);
-        
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+
+        let errorMessage = 'Unknown error occurred';
+        if (error instanceof Error) {
+          errorMessage = error.message;
+        }
+
         let chatErrorType: ChatError['type'] = 'api';
         let errorText = "Sorry, I encountered an error. Please try again.";
         let recoverable = true;
 
-        if (errorMessage.includes('API key')) {
+        // Detect network errors (fetch throws TypeError on network failure)
+        if (error instanceof TypeError && errorMessage.match(/network|fetch|failed|connection/i)) {
+          chatErrorType = 'network';
+          errorText = "Network error. Please check your connection and try again.";
+        } else if (errorMessage.includes('API key')) {
           chatErrorType = 'auth';
           errorText = "API authentication failed. Please check your API key configuration.";
           recoverable = false;
         } else if (errorMessage.includes('quota') || errorMessage.includes('rate limit')) {
           chatErrorType = 'api';
           errorText = "Rate limit exceeded. Please wait a moment and try again.";
-        } else if (errorMessage.includes('network') || errorMessage.includes('fetch')) {
-          chatErrorType = 'network';
-          errorText = "Network error. Please check your connection and try again.";
+        } else if (errorMessage.startsWith('API request failed:')) {
+          chatErrorType = 'api';
+          // Show backend error message if available
+          const backendMsg = errorMessage.replace('API request failed:', '').trim();
+          // Try to extract JSON error if present
+          try {
+            const json = JSON.parse(backendMsg);
+            if (json && json.error) {
+              errorText = json.error;
+            } else {
+              errorText = backendMsg || errorText;
+            }
+          } catch {
+            errorText = backendMsg || errorText;
+          }
+        } else if (errorMessage.includes('No response stream available')) {
+          chatErrorType = 'api';
+          errorText = "No response stream from server. Please try again later.";
+        } else if (errorMessage && errorMessage !== 'Unknown error occurred') {
+          // Show any other error message from backend
+          errorText = errorMessage;
         }
 
         handleError(createError(chatErrorType, errorText, recoverable, recoverable ? 'retry' : undefined));
@@ -557,10 +588,10 @@ export default function UnifiedChatInterface({
 
   return (
     <ErrorBoundary onError={(error) => handleError(createError('api', error.message, true))}>
-      <div className={`flex h-screen bg-background ${className}`}>
+      <div className={`flex flex-col md:flex-row h-screen bg-background ${className}`}> 
         {/* Sidebar */}
         {finalConfig.enableHistory && showHistory && (
-          <div className="w-80 border-r bg-card p-4 overflow-hidden flex flex-col">
+          <div className="w-full md:w-80 border-b md:border-b-0 md:border-r bg-card p-4 overflow-hidden flex flex-col">
             <div className="flex items-center justify-between mb-4">
               <h2 className="font-semibold">Conversations</h2>
               <Button onClick={handleNewConversation} size="sm" variant="outline">
@@ -577,8 +608,8 @@ export default function UnifiedChatInterface({
           </div>
         )}
 
-        {/* Main chat area */}
-        <div className="flex-1 flex flex-col">
+  {/* Main chat area */}
+  <div className="flex-1 flex flex-col w-full">
           {/* Header */}
           <div className="border-b bg-card p-4">
             <div className="flex items-center justify-between max-w-4xl mx-auto">
@@ -588,7 +619,7 @@ export default function UnifiedChatInterface({
                     onClick={() => setShowHistory(!showHistory)}
                     variant="ghost"
                     size="sm"
-                    className="md:hidden"
+                    title={showHistory ? "Hide sidebar" : "Show sidebar"}
                   >
                     <Menu className="h-4 w-4" />
                   </Button>
@@ -698,36 +729,16 @@ export default function UnifiedChatInterface({
           {/* Input area */}
           <div className="border-t bg-card p-4">
             <div className="max-w-4xl mx-auto flex gap-2">
-              <div className="flex items-center gap-2 w-full">
-                {finalConfig.enableSpeech && speechSupported && (
-                  <Button
-                    onClick={toggleListening}
-                    variant={isListening ? "default" : "outline"}
-                    size="icon"
-                    className={isListening ? "bg-red-500 hover:bg-red-600" : ""}
-                    title={isListening ? "Stop Listening" : "Start Listening"}
-                  >
-                    {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-                  </Button>
-                )}
-                {finalConfig.enableSpeech && speechSupported && (
-                  <Button
-                    onClick={toggleSpeaking}
-                    variant={autoSpeak ? "default" : "outline"}
-                    size="icon"
-                    title={autoSpeak ? "Disable Auto Speak" : "Enable Auto Speak"}
-                  >
-                    {autoSpeak ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
-                  </Button>
-                )}
+              <div className="flex items-center w-full rounded-full bg-white dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 px-2 py-1 shadow-sm focus-within:ring-2 focus-within:ring-primary gap-1 flex-wrap sm:flex-nowrap">
                 {/* Mode button placeholder, replace with your mode logic if needed */}
                 <div className="relative">
                   <select
                     value={aiProvider}
                     onChange={e => setAiProvider(e.target.value)}
-                    className="appearance-none border rounded px-2 py-1 text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                    className="appearance-none bg-transparent pl-2 pr-6 py-1 text-xs sm:text-sm text-foreground focus:outline-none rounded-full h-9 min-w-[90px] sm:min-w-[110px]"
                     title="Select provider"
                   >
+                    {/* Only show providers with working endpoints */}
                     <option value="chat-groq">Groq (Llama 3.1)</option>
                     <option value="chat-simple">Simple AI</option>
                     <option value="chat-direct">OpenAI</option>
@@ -737,17 +748,44 @@ export default function UnifiedChatInterface({
                   </span>
                 </div>
                 <Input
+                  ref={inputRef}
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyPress={handleKeyPress}
                   placeholder="Type your message... (Enter to send, Shift+Enter for new line)"
                   disabled={isLoading}
-                  className="flex-1"
+                  className="flex-1 border-none bg-transparent focus:ring-0 focus:border-none shadow-none px-2 sm:px-3 min-w-0"
+                  style={{ boxShadow: "none" }}
+                  autoFocus
                 />
+                {finalConfig.enableSpeech && speechSupported && (
+                  <Button
+                    onClick={toggleListening}
+                    variant="ghost"
+                    size="icon"
+                    className={`rounded-full ${isListening ? "bg-red-500 hover:bg-red-600 text-white" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}
+                    title={isListening ? "Stop Listening" : "Start Listening"}
+                  >
+                    {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                  </Button>
+                )}
+                {finalConfig.enableSpeech && speechSupported && (
+                  <Button
+                    onClick={toggleSpeaking}
+                    variant="ghost"
+                    size="icon"
+                    className={`rounded-full ${autoSpeak ? "bg-primary text-white" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}
+                    title={autoSpeak ? "Disable Auto Speak" : "Enable Auto Speak"}
+                  >
+                    {autoSpeak ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+                  </Button>
+                )}
                 <Button
                   onClick={() => submitMessage()}
                   disabled={!input.trim() || isLoading}
                   size="icon"
+                  variant="ghost"
+                  className="rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800 ml-1 mt-1 sm:mt-0"
                 >
                   <Send className="h-4 w-4" />
                 </Button>

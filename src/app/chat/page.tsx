@@ -10,7 +10,7 @@ export default function ChatPage() {
           enableSpeech: true,
           enableHistory: true,
           autoSave: true,
-          defaultProvider: "quiz-target", // Custom provider for RAG bot
+          defaultProvider: "chat-groq", // Default provider set to Groq
           maxMessages: 50,
           showProviderBadge: false,
         }}
