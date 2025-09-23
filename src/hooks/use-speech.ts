@@ -68,6 +68,23 @@ export function useSpeech(): UseSpeechReturn {
   const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Check for browser support and initial permission status
+  // Play a short sound for listening start/stop
+  const playMicSound = (type: 'start' | 'stop') => {
+    try {
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.value = type === 'start' ? 880 : 440;
+      g.gain.value = 0.15;
+      o.connect(g);
+      g.connect(ctx.destination);
+      o.start();
+      o.stop(ctx.currentTime + 0.15);
+      o.onended = () => ctx.close();
+    } catch {}
+  };
+
   useEffect(() => {
     const speechRecognitionSupported = 
       'SpeechRecognition' in window || 'webkitSpeechRecognition' in window;
@@ -137,34 +154,33 @@ export function useSpeech(): UseSpeechReturn {
         recognitionRef.current.continuous = false;
         recognitionRef.current.interimResults = true;
         recognitionRef.current.lang = 'en-US';
-        
+
         recognitionRef.current.onstart = () => {
           setIsListening(true);
           setError(null);
+          playMicSound('start');
         };
-        
+
         recognitionRef.current.onresult = (event: SpeechRecognitionEvent) => {
           let finalTranscript = '';
-          
           for (let i = event.resultIndex; i < event.results.length; i++) {
             const result = event.results[i];
             if (result.isFinal) {
               finalTranscript += result[0].transcript;
             }
           }
-          
           if (finalTranscript) {
             setTranscript(finalTranscript.trim());
           }
         };
-        
+
         recognitionRef.current.onend = () => {
           setIsListening(false);
+          playMicSound('stop');
         };
-        
+
         recognitionRef.current.onerror = (event: SpeechRecognitionErrorEvent) => {
           let errorMessage = `Speech recognition error: ${event.error}`;
-          
           // Provide more helpful error messages
           switch (event.error) {
             case 'network':
@@ -195,9 +211,9 @@ export function useSpeech(): UseSpeechReturn {
             default:
               errorMessage = `Speech recognition error: ${event.error}. Please try again.`;
           }
-          
           setError(errorMessage);
           setIsListening(false);
+          playMicSound('stop');
         };
       }
 
