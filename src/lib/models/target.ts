@@ -4,7 +4,7 @@ export interface ITarget extends Document {
   name: string;
   type: string; // e.g., 'school', 'person', etc.
   description?: string;
-  details?: Record<string, any>; // Flexible details for any target type
+  details?: Record<string, unknown>; // Flexible details for any target type
   content: string[]; // For RAG context
 }
 
