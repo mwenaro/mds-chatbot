@@ -18,10 +18,10 @@ export default function ChatPage() {
           // Optionally handle errors here
           console.error("Chat error:", error);
         }}
-        onMessageSent={(message) => {
+        onMessageSent={() => {
           // Optionally track sent messages
         }}
-        onMessageReceived={(message) => {
+        onMessageReceived={() => {
           // Optionally track received messages
         }}
       />

@@ -27,7 +27,7 @@ export default function ChatInterfaceWithStorage() {
   const [isLoading, setIsLoading] = useState(false);
   const [autoSpeak, setAutoSpeak] = useState(false);
   const [showHistory, setShowHistory] = useState(true);
-  const [autoSave, setAutoSave] = useState(true);
+  const [autoSave] = useState(true);
   const [currentConversation, setCurrentConversation] = useState<UnifiedConversation | null>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
 
@@ -104,18 +104,7 @@ export default function ChatInterfaceWithStorage() {
     }
   }, [isSignedIn]);
 
-  const handleNewConversation = useCallback(() => {
-    setCurrentConversation(null);
-    const defaultMessages: IMessage[] = [
-      {
-        id: "1",
-        content: "Hello! I'm your AI assistant. How can I help you today?",
-        role: "assistant",
-        timestamp: new Date(),
-      },
-    ];
-    setMessages(defaultMessages);
-  }, []);
+
 
   const handleSaveConversation = useCallback(async () => {
     if (messages.length <= 1) return; // Don't save if only greeting message
