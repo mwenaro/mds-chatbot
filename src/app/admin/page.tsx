@@ -7,7 +7,7 @@ interface Target {
   name: string;
   type: string;
   description?: string;
-  details?: Record<string, any>;
+  details?: Record<string, unknown>;
   content: string[];
 }
 
@@ -27,7 +27,7 @@ export default function AdminPage() {
 
   const fetchTargets = async () => {
     const res = await fetch("/api/v2/admin");
-    const data = await res.json();
+    const data: { targets: Target[] } = await res.json();
     setTargets(data.targets);
   };
 
@@ -95,7 +95,7 @@ export default function AdminPage() {
       });
       await fetchTargets();
       closeModal();
-    } catch (err) {
+    } catch {
       setError("Invalid data. Please check your input.");
     }
     setLoading(false);

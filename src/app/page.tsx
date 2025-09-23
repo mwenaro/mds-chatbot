@@ -1,7 +1,7 @@
 "use client";
 
 import UnifiedChatInterface from "@/components/unified-chat-interface";
-import { useAnalytics } from "@/lib/analytics";
+
 
 export default function Home() {
   return (
