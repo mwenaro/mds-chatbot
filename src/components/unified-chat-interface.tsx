@@ -52,7 +52,7 @@ const DEFAULT_CONFIG: ChatConfig = {
   enableSpeech: true,
   enableHistory: true,
   autoSave: true,
-  defaultProvider: "chat-groq",
+  defaultProvider: "chat-rag-groq",
   maxMessages: 100,
   showProviderBadge: true,
 };

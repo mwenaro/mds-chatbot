@@ -10,6 +10,27 @@ interface AIProviderSelectorProps {
 export default function AIProviderSelector({ onProviderChange, currentProvider }: AIProviderSelectorProps) {
   const providers = [
     { 
+      id: "chat-rag-groq", 
+      name: "Abu Rayyan (Groq)", 
+      description: "RAG + Groq AI (Fast & Free)", 
+      color: "bg-emerald-500",
+      setup: "Document search + Groq Llama 3.1 - completely free!"
+    },
+    { 
+      id: "chat-rag-simple", 
+      name: "Abu Rayyan (Free)", 
+      description: "RAG without embeddings (Free)", 
+      color: "bg-blue-500",
+      setup: "Text-based document search - no API credits needed"
+    },
+    { 
+      id: "chat-rag", 
+      name: "Abu Rayyan (Premium)", 
+      description: "RAG with embeddings (Requires OpenAI)", 
+      color: "bg-indigo-500",
+      setup: "Vector-based search - requires OpenAI credits"
+    },
+    { 
       id: "chat-groq", 
       name: "Groq", 
       description: "Fast & Free (Llama 3.1)", 

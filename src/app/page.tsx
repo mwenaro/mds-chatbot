@@ -12,7 +12,7 @@ export default function Home() {
           enableSpeech: true,
           enableHistory: true,
           autoSave: true,
-          defaultProvider: "chat-groq",
+          defaultProvider: "chat-rag-groq",
           maxMessages: 50,
           showProviderBadge: true,
         }}
