@@ -57,7 +57,7 @@ const DEFAULT_CONFIG: ChatConfig = {
   showProviderBadge: true,
 };
 
-export default function UnifiedChatInterface({ 
+export default function UnifiedChatInterface({
   config = DEFAULT_CONFIG,
   onError,
   onMessageSent,
@@ -66,7 +66,7 @@ export default function UnifiedChatInterface({
 }: UnifiedChatInterfaceProps) {
   const { isSignedIn } = useUser();
   const finalConfig = useMemo(() => ({ ...DEFAULT_CONFIG, ...config }), [config]);
-  
+
   // State management
   const [mounted, setMounted] = useState(false);
   const [messages, setMessages] = useState<IMessage[]>([]);
@@ -78,11 +78,11 @@ export default function UnifiedChatInterface({
   const [currentConversation, setCurrentConversation] = useState<UnifiedConversation | null>(null);
   const [chatError, setChatError] = useState<ChatError | null>(null);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
-  
+
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-    const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   // Speech functionality (conditionally initialized)
   const speech = useSpeech();
   const {
@@ -95,6 +95,7 @@ export default function UnifiedChatInterface({
     speak,
     stopSpeaking,
     requestPermission,
+    testSpeechService,
     transcript,
     error: speechError,
   } = finalConfig.enableSpeech ? speech : {
@@ -102,30 +103,43 @@ export default function UnifiedChatInterface({
     isSpeaking: false,
     isSupported: false,
     hasPermission: false,
-    startListening: () => {},
-    stopListening: () => {},
-    speak: () => {},
-    stopSpeaking: () => {},
+    startListening: (onAutoSubmit?: (transcript: string) => void) => { },
+    stopListening: () => { },
+    speak: () => { },
+    stopSpeaking: () => { },
     requestPermission: () => Promise.resolve(),
+    testSpeechService: () => Promise.resolve(false),
     transcript: '',
     error: null,
   };
 
   // Error handling utility
   const handleError = useCallback((error: ChatError) => {
-    setChatError(error);
-    onError?.(error);
-    
+    // Defensive: ensure error is always a valid object
+    const safeError: ChatError = error && typeof error === 'object' && 'type' in error && 'message' in error
+      ? error as ChatError
+      : {
+        type: 'api', // fallback to a valid ChatError type
+        message: typeof error === 'string' ? error : 'Unknown error',
+        recoverable: true
+      };
+    setChatError(safeError);
+    if (typeof window !== 'undefined') {
+      // Log full error for debugging
+      // @ts-expect-error - Adding custom property to window for debugging
+      window.__lastChatError = safeError;
+    }
+    onError?.(safeError);
     // Auto-clear non-critical errors after 5 seconds
-    if (error.recoverable) {
+    if (safeError.recoverable) {
       setTimeout(() => setChatError(null), 5000);
     }
   }, [onError]);
 
   // Enhanced error creation utility
   const createError = useCallback((
-    type: ChatError['type'], 
-    message: string, 
+    type: ChatError['type'],
+    message: string,
     recoverable: boolean = true,
     action?: string
   ): ChatError => ({
@@ -141,8 +155,8 @@ export default function UnifiedChatInterface({
     const defaultMessages: IMessage[] = [
       {
         id: "1",
-        content: "Hello! I'm your AI assistant. How can I help you today?" + 
-                (finalConfig.enableSpeech ? " You can click the microphone to speak with me!" : ""),
+        content: "Hello! I'm your AI assistant. How can I help you today?" +
+          (finalConfig.enableSpeech ? " You can click the microphone to speak with me!" : ""),
         role: "assistant",
         timestamp: new Date(),
       },
@@ -153,7 +167,7 @@ export default function UnifiedChatInterface({
   // Auto-scroll to bottom
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+  }, [messages]); // scrollToBottom is stable, no need to include in deps
 
   // Auto-save functionality
   useEffect(() => {
@@ -188,19 +202,32 @@ export default function UnifiedChatInterface({
   // Speech error handling
   useEffect(() => {
     if (speechError && finalConfig.enableSpeech) {
+      // Log the error in detail for debugging
+      if (typeof window !== 'undefined') {
+        // @ts-expect-error - Adding custom property to window for debugging
+        window.__lastSpeechError = speechError;
+        // Optionally log browser info
+        // @ts-expect-error - Adding custom property to window for debugging
+        window.__speechEnv = {
+          userAgent: navigator.userAgent,
+          protocol: window.location.protocol,
+          online: navigator.onLine
+        };
+      }
       handleError(createError('speech', `Speech error: ${speechError}`, true));
     }
   }, [speechError, finalConfig.enableSpeech, handleError, createError]);
 
-  // Handle speech transcript
+  // Handle speech transcript (only for manual mode, auto-submit handles its own flow)
   useEffect(() => {
     if (transcript && !isListening && finalConfig.enableSpeech) {
-      setInput(transcript);
-      if (transcript.length > 5) {
-        setTimeout(() => submitMessage(transcript), 100);
+      // Only set input if we're not in auto-submit mode
+      // Check if this transcript was already handled by auto-submit
+      if (!input || input !== transcript) {
+        setInput(transcript);
       }
     }
-  }, [transcript, isListening, finalConfig.enableSpeech]);
+  }, [transcript, isListening, finalConfig.enableSpeech, input]);
 
   const scrollToBottom = useCallback(() => {
     if (scrollAreaRef.current) {
@@ -215,10 +242,10 @@ export default function UnifiedChatInterface({
 
   const handleSelectConversation = useCallback(async (conversationId: string) => {
     if (!finalConfig.enableStorage) return;
-    
+
     try {
       const conversation = await UnifiedConversationService.getConversation(
-        conversationId, 
+        conversationId,
         !!isSignedIn
       );
       if (conversation) {
@@ -329,7 +356,7 @@ export default function UnifiedChatInterface({
           throw new Error(`API request failed: ${response.status} ${errorText}`);
         }
 
-  const reader = response.body?.getReader();
+        const reader = response.body?.getReader();
         const decoder = new TextDecoder();
 
         if (!reader) {
@@ -464,13 +491,13 @@ export default function UnifiedChatInterface({
       }
     },
     [
-      input, 
-      isLoading, 
-      aiProvider, 
-      autoSpeak, 
-      speak, 
-      messages, 
-      currentConversation, 
+      input,
+      isLoading,
+      aiProvider,
+      autoSpeak,
+      speak,
+      messages,
+      currentConversation,
       finalConfig,
       isSignedIn,
       onMessageSent,
@@ -480,7 +507,7 @@ export default function UnifiedChatInterface({
     ]
   );
 
-  const handleKeyPress = useCallback((e: React.KeyboardEvent) => {
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       submitMessage();
@@ -505,7 +532,22 @@ export default function UnifiedChatInterface({
     if (isListening) {
       stopListening();
     } else {
-      startListening();
+      // Auto-enable speaker for natural conversation flow
+      if (!autoSpeak) {
+        setAutoSpeak(true);
+      }
+      
+      // Start listening with auto-submit callback
+      startListening((transcript) => {
+        // Auto-submit the transcript when user stops speaking
+        if (transcript.trim()) {
+          setInput(transcript);
+          // Submit after a brief delay to allow UI update
+          setTimeout(() => {
+            submitMessage(transcript);
+          }, 100);
+        }
+      });
     }
   }, [
     finalConfig.enableSpeech,
@@ -515,8 +557,10 @@ export default function UnifiedChatInterface({
     requestPermission,
     startListening,
     stopListening,
+    autoSpeak,
     handleError,
-    createError
+    createError,
+    submitMessage
   ]);
 
   const toggleSpeaking = useCallback(() => {
@@ -542,7 +586,7 @@ export default function UnifiedChatInterface({
     if (!chatError) return null;
 
     const IconComponent = chatError.type === 'network' ? RefreshCw : AlertCircle;
-    
+
     return (
       <div className="mx-auto max-w-4xl mb-4">
         <Card className="p-4 border-red-200 bg-red-50">
@@ -588,7 +632,7 @@ export default function UnifiedChatInterface({
 
   return (
     <ErrorBoundary onError={(error) => handleError(createError('api', error.message, true))}>
-      <div className={`flex flex-col md:flex-row h-screen bg-background ${className}`}> 
+      <div className={`flex flex-col md:flex-row h-screen bg-background ${className}`}>
         {/* Sidebar */}
         {finalConfig.enableHistory && showHistory && (
           <div className="w-full md:w-80 border-b md:border-b-0 md:border-r bg-card p-4 overflow-hidden flex flex-col">
@@ -598,7 +642,7 @@ export default function UnifiedChatInterface({
                 New Chat
               </Button>
             </div>
-            
+
             <ErrorBoundary>
               <ConversationHistory
                 onSelectConversation={handleSelectConversation}
@@ -608,8 +652,8 @@ export default function UnifiedChatInterface({
           </div>
         )}
 
-  {/* Main chat area */}
-  <div className="flex-1 flex flex-col w-full">
+        {/* Main chat area */}
+        <div className="flex-1 flex flex-col w-full">
           {/* Header */}
           <div className="border-b bg-card p-4">
             <div className="flex items-center justify-between max-w-4xl mx-auto">
@@ -624,9 +668,9 @@ export default function UnifiedChatInterface({
                     <Menu className="h-4 w-4" />
                   </Button>
                 )}
-                
+
                 <h1 className="text-xl font-semibold">MDS Chatbot</h1>
-                
+
                 <div className="flex items-center gap-2">
                   {finalConfig.showProviderBadge && (
                     <Badge variant="outline" className="text-xs">
@@ -649,7 +693,7 @@ export default function UnifiedChatInterface({
 
               <div className="flex items-center gap-2">
                 <AuthControls />
-                
+
                 {finalConfig.enableStorage && (
                   <Button
                     onClick={handleSaveConversation}
@@ -661,7 +705,7 @@ export default function UnifiedChatInterface({
                     Save
                   </Button>
                 )}
-                
+
                 {/* Provider selector moved to input area dropdown */}
               </div>
             </div>
@@ -676,9 +720,8 @@ export default function UnifiedChatInterface({
               {messages.map((message) => (
                 <div
                   key={message.id}
-                  className={`flex items-start gap-3 ${
-                    message.role === "user" ? "flex-row-reverse" : ""
-                  }`}
+                  className={`flex items-start gap-3 ${message.role === "user" ? "flex-row-reverse" : ""
+                    }`}
                 >
                   <Avatar className="w-8 h-8">
                     <AvatarFallback>
@@ -690,11 +733,10 @@ export default function UnifiedChatInterface({
                     </AvatarFallback>
                   </Avatar>
                   <Card
-                    className={`max-w-[80%] p-3 ${
-                      message.role === "user"
+                    className={`max-w-[80%] p-3 ${message.role === "user"
                         ? "bg-primary text-primary-foreground"
                         : "bg-muted"
-                    }`}
+                      }`}
                   >
                     <div className="markdown-content">
                       <ReactMarkdown
@@ -721,7 +763,7 @@ export default function UnifiedChatInterface({
                   </Card>
                 </div>
               ))}
-              
+
               {isLoading && <MessageLoadingSkeleton />}
             </div>
           </ScrollArea>
@@ -751,22 +793,33 @@ export default function UnifiedChatInterface({
                   ref={inputRef}
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  onKeyPress={handleKeyPress}
+                  onKeyDown={handleKeyDown}
                   placeholder="Type your message... (Enter to send, Shift+Enter for new line)"
                   disabled={isLoading}
                   className="flex-1 border-none bg-transparent focus:ring-0 focus:border-none shadow-none px-2 sm:px-3 min-w-0"
                   style={{ boxShadow: "none" }}
                   autoFocus
                 />
+                {finalConfig.enableSpeech && !speechSupported && (
+                  <div className="text-xs text-red-500 px-2" title="Speech recognition is not supported in your browser or device.">
+                    <MicOff className="inline h-4 w-4 mr-1 align-text-bottom" />
+                    Speech recognition is not supported in your browser or device.
+                  </div>
+                )}
                 {finalConfig.enableSpeech && speechSupported && (
                   <Button
                     onClick={toggleListening}
                     variant="ghost"
                     size="icon"
-                    className={`rounded-full ${isListening ? "bg-red-500 hover:bg-red-600 text-white" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}
+                    className={`rounded-full relative transition-all duration-300 ${isListening ? "bg-red-500 hover:bg-red-600 text-white animate-pulse-mic" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}
                     title={isListening ? "Stop Listening" : "Start Listening"}
+                    style={isListening ? { boxShadow: '0 0 0 4px rgba(239,68,68,0.3)' } : {}}
                   >
                     {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                    {/* Animated ring for listening */}
+                    {isListening && (
+                      <span className="absolute inset-0 rounded-full border-2 border-red-400 animate-pulse pointer-events-none" style={{ boxShadow: '0 0 0 6px rgba(239,68,68,0.15)' }} />
+                    )}
                   </Button>
                 )}
                 {finalConfig.enableSpeech && speechSupported && (
@@ -792,22 +845,97 @@ export default function UnifiedChatInterface({
               </div>
             </div>
 
+
             {finalConfig.enableSpeech && speechError && (
-              <div className="text-red-500 text-sm mt-2 max-w-4xl mx-auto">
-                Speech error: {speechError}
+              <div className="text-red-500 text-sm mt-2 max-w-4xl mx-auto flex items-center gap-2 flex-wrap">
+                <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                <span className="flex-1">{speechError}</span>
+                {speechError.toLowerCase().includes('permission') && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={async () => {
+                      try {
+                        await requestPermission();
+                      } catch (e) {
+                        handleError(createError('speech', 'Microphone permission denied.', true));
+                      }
+                    }}
+                  >
+                    Allow Microphone
+                  </Button>
+                )}
+                {speechError.toLowerCase().includes('internet connection') && (
+                  <div className="flex gap-2 items-center">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        if (navigator.onLine) {
+                          // Clear the error and try again
+                          setChatError(null);
+                        } else {
+                          handleError(createError('speech', 'Still offline. Please check your internet connection.', true));
+                        }
+                      }}
+                    >
+                      <RefreshCw className="h-3 w-3 mr-1" />
+                      Check Connection
+                    </Button>
+                    <span className="text-xs text-muted-foreground">
+                      {navigator.onLine ? '🟢 Online' : '🔴 Offline'}
+                    </span>
+                  </div>
+                )}
+                {(speechError.toLowerCase().includes('speech service') || speechError.toLowerCase().includes('temporarily unavailable')) && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={async () => {
+                      try {
+                        const serviceWorking = await testSpeechService();
+                        if (serviceWorking) {
+                          setChatError(null);
+                          handleError(createError('speech', 'Speech service test passed! Try the microphone again.', true));
+                        } else {
+                          handleError(createError('speech', 'Speech service test failed. The service may be blocked by your network or firewall.', true));
+                        }
+                      } catch (e) {
+                        handleError(createError('speech', 'Unable to test speech service connectivity.', true));
+                      }
+                    }}
+                  >
+                    <RefreshCw className="h-3 w-3 mr-1" />
+                    Test Speech Service
+                  </Button>
+                )}
               </div>
             )}
 
-            {finalConfig.enableSpeech && transcript && isListening && (
-              <div className="text-sm text-muted-foreground mt-2 max-w-4xl mx-auto">
-                Transcript: {transcript}
+            {finalConfig.enableSpeech && isListening && (
+              <div className="text-sm mt-2 max-w-4xl mx-auto">
+                <div className="flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <div className="h-2 w-2 bg-red-500 rounded-full animate-pulse"></div>
+                    <span className="text-blue-700 font-medium">Listening...</span>
+                  </div>
+                  {transcript && (
+                    <div className="flex-1 text-blue-800">
+                      <span className="text-xs text-blue-600">You said: </span>
+                      &ldquo;{transcript}&rdquo;
+                    </div>
+                  )}
+                  {!transcript && (
+                    <span className="text-blue-600 text-xs">Speak now, I&apos;ll auto-submit when you pause</span>
+                  )}
+                </div>
               </div>
             )}
 
             {!isSignedIn && finalConfig.enableStorage && (
               <div className="text-center mt-4 p-3 bg-orange-50 border border-orange-200 rounded-lg max-w-4xl mx-auto">
                 <p className="text-sm text-orange-800">
-                  <strong>Guest Mode:</strong> Your conversation will be lost when you close the browser. 
+                  <strong>Guest Mode:</strong> Your conversation will be lost when you close the browser.
                   <span className="text-orange-600"> Sign up to save your conversations permanently!</span>
                 </p>
               </div>

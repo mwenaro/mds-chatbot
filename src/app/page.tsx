@@ -19,17 +19,29 @@ export default function Home() {
         onError={(error) => {
           // Log errors for analytics and debugging
           console.error('Chat error:', error);
-          
-          // Track error events
           if (typeof window !== 'undefined') {
-            // Use analytics service directly since we can't use hooks here
-            import('@/lib/analytics').then(({ AnalyticsService }) => {
-              AnalyticsService.trackEvent('error_occurred', {
-                errorType: error.type,
-                message: error.message,
-                recoverable: error.recoverable
+            // Log all error properties for debugging
+            (window as any).__lastPageError = error;
+          }
+          // Defensive: Only send analytics if all properties exist
+          if (
+            error &&
+            typeof error === 'object' &&
+            'type' in error &&
+            'message' in error &&
+            'recoverable' in error
+          ) {
+            if (typeof window !== 'undefined') {
+              import('@/lib/analytics').then(({ AnalyticsService }) => {
+                AnalyticsService.trackEvent('error_occurred', {
+                  errorType: error.type,
+                  message: error.message,
+                  recoverable: error.recoverable
+                });
               });
-            });
+            }
+          } else {
+            console.warn('Malformed error object received in onError:', error);
           }
         }}
         onMessageSent={(message) => {
