@@ -95,6 +95,7 @@ export default function UnifiedChatInterface({
     speak,
     stopSpeaking,
     requestPermission,
+    testSpeechService,
     transcript,
     error: speechError,
   } = finalConfig.enableSpeech ? speech : {
@@ -102,11 +103,12 @@ export default function UnifiedChatInterface({
     isSpeaking: false,
     isSupported: false,
     hasPermission: false,
-    startListening: () => { },
+    startListening: (onAutoSubmit?: (transcript: string) => void) => { },
     stopListening: () => { },
     speak: () => { },
     stopSpeaking: () => { },
     requestPermission: () => Promise.resolve(),
+    testSpeechService: () => Promise.resolve(false),
     transcript: '',
     error: null,
   };
@@ -124,7 +126,7 @@ export default function UnifiedChatInterface({
     setChatError(safeError);
     if (typeof window !== 'undefined') {
       // Log full error for debugging
-      // @ts-ignore
+      // @ts-expect-error - Adding custom property to window for debugging
       window.__lastChatError = safeError;
     }
     onError?.(safeError);
@@ -165,7 +167,7 @@ export default function UnifiedChatInterface({
   // Auto-scroll to bottom
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+  }, [messages]); // scrollToBottom is stable, no need to include in deps
 
   // Auto-save functionality
   useEffect(() => {
@@ -202,10 +204,10 @@ export default function UnifiedChatInterface({
     if (speechError && finalConfig.enableSpeech) {
       // Log the error in detail for debugging
       if (typeof window !== 'undefined') {
-        // @ts-ignore
+        // @ts-expect-error - Adding custom property to window for debugging
         window.__lastSpeechError = speechError;
         // Optionally log browser info
-        // @ts-ignore
+        // @ts-expect-error - Adding custom property to window for debugging
         window.__speechEnv = {
           userAgent: navigator.userAgent,
           protocol: window.location.protocol,
@@ -216,13 +218,16 @@ export default function UnifiedChatInterface({
     }
   }, [speechError, finalConfig.enableSpeech, handleError, createError]);
 
-  // Handle speech transcript
+  // Handle speech transcript (only for manual mode, auto-submit handles its own flow)
   useEffect(() => {
     if (transcript && !isListening && finalConfig.enableSpeech) {
-      setInput(transcript);
-      // Do not auto-submit. Let user review/edit transcript in input field.
+      // Only set input if we're not in auto-submit mode
+      // Check if this transcript was already handled by auto-submit
+      if (!input || input !== transcript) {
+        setInput(transcript);
+      }
     }
-  }, [transcript, isListening, finalConfig.enableSpeech]);
+  }, [transcript, isListening, finalConfig.enableSpeech, input]);
 
   const scrollToBottom = useCallback(() => {
     if (scrollAreaRef.current) {
@@ -502,7 +507,7 @@ export default function UnifiedChatInterface({
     ]
   );
 
-  const handleKeyPress = useCallback((e: React.KeyboardEvent) => {
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       submitMessage();
@@ -527,7 +532,22 @@ export default function UnifiedChatInterface({
     if (isListening) {
       stopListening();
     } else {
-      startListening();
+      // Auto-enable speaker for natural conversation flow
+      if (!autoSpeak) {
+        setAutoSpeak(true);
+      }
+      
+      // Start listening with auto-submit callback
+      startListening((transcript) => {
+        // Auto-submit the transcript when user stops speaking
+        if (transcript.trim()) {
+          setInput(transcript);
+          // Submit after a brief delay to allow UI update
+          setTimeout(() => {
+            submitMessage(transcript);
+          }, 100);
+        }
+      });
     }
   }, [
     finalConfig.enableSpeech,
@@ -537,8 +557,10 @@ export default function UnifiedChatInterface({
     requestPermission,
     startListening,
     stopListening,
+    autoSpeak,
     handleError,
-    createError
+    createError,
+    submitMessage
   ]);
 
   const toggleSpeaking = useCallback(() => {
@@ -771,7 +793,7 @@ export default function UnifiedChatInterface({
                   ref={inputRef}
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  onKeyPress={handleKeyPress}
+                  onKeyDown={handleKeyDown}
                   placeholder="Type your message... (Enter to send, Shift+Enter for new line)"
                   disabled={isLoading}
                   className="flex-1 border-none bg-transparent focus:ring-0 focus:border-none shadow-none px-2 sm:px-3 min-w-0"
@@ -800,9 +822,6 @@ export default function UnifiedChatInterface({
                     )}
                   </Button>
                 )}
-// Add pulse animation for mic button
-                // You can move this to your global CSS if preferred
-                import "./unified-chat-interface.css";
                 {finalConfig.enableSpeech && speechSupported && (
                   <Button
                     onClick={toggleSpeaking}
@@ -828,8 +847,9 @@ export default function UnifiedChatInterface({
 
 
             {finalConfig.enableSpeech && speechError && (
-              <div className="text-red-500 text-sm mt-2 max-w-4xl mx-auto flex items-center gap-2">
-                <span>Speech error: {speechError}</span>
+              <div className="text-red-500 text-sm mt-2 max-w-4xl mx-auto flex items-center gap-2 flex-wrap">
+                <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                <span className="flex-1">{speechError}</span>
                 {speechError.toLowerCase().includes('permission') && (
                   <Button
                     size="sm"
@@ -842,15 +862,73 @@ export default function UnifiedChatInterface({
                       }
                     }}
                   >
-                    Try Again
+                    Allow Microphone
+                  </Button>
+                )}
+                {speechError.toLowerCase().includes('internet connection') && (
+                  <div className="flex gap-2 items-center">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        if (navigator.onLine) {
+                          // Clear the error and try again
+                          setChatError(null);
+                        } else {
+                          handleError(createError('speech', 'Still offline. Please check your internet connection.', true));
+                        }
+                      }}
+                    >
+                      <RefreshCw className="h-3 w-3 mr-1" />
+                      Check Connection
+                    </Button>
+                    <span className="text-xs text-muted-foreground">
+                      {navigator.onLine ? '🟢 Online' : '🔴 Offline'}
+                    </span>
+                  </div>
+                )}
+                {(speechError.toLowerCase().includes('speech service') || speechError.toLowerCase().includes('temporarily unavailable')) && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={async () => {
+                      try {
+                        const serviceWorking = await testSpeechService();
+                        if (serviceWorking) {
+                          setChatError(null);
+                          handleError(createError('speech', 'Speech service test passed! Try the microphone again.', true));
+                        } else {
+                          handleError(createError('speech', 'Speech service test failed. The service may be blocked by your network or firewall.', true));
+                        }
+                      } catch (e) {
+                        handleError(createError('speech', 'Unable to test speech service connectivity.', true));
+                      }
+                    }}
+                  >
+                    <RefreshCw className="h-3 w-3 mr-1" />
+                    Test Speech Service
                   </Button>
                 )}
               </div>
             )}
 
-            {finalConfig.enableSpeech && transcript && isListening && (
-              <div className="text-sm text-muted-foreground mt-2 max-w-4xl mx-auto">
-                Transcript: {transcript}
+            {finalConfig.enableSpeech && isListening && (
+              <div className="text-sm mt-2 max-w-4xl mx-auto">
+                <div className="flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <div className="h-2 w-2 bg-red-500 rounded-full animate-pulse"></div>
+                    <span className="text-blue-700 font-medium">Listening...</span>
+                  </div>
+                  {transcript && (
+                    <div className="flex-1 text-blue-800">
+                      <span className="text-xs text-blue-600">You said: </span>
+                      &ldquo;{transcript}&rdquo;
+                    </div>
+                  )}
+                  {!transcript && (
+                    <span className="text-blue-600 text-xs">Speak now, I&apos;ll auto-submit when you pause</span>
+                  )}
+                </div>
               </div>
             )}
 

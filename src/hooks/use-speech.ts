@@ -46,11 +46,12 @@ interface UseSpeechReturn {
   isSpeaking: boolean;
   isSupported: boolean;
   hasPermission: boolean | null; // null = unknown, true = granted, false = denied
-  startListening: () => void;
+  startListening: (onAutoSubmit?: (transcript: string) => void) => void;
   stopListening: () => void;
   speak: (text: string) => void;
   stopSpeaking: () => void;
   requestPermission: () => Promise<boolean>;
+  testSpeechService: () => Promise<boolean>;
   transcript: string;
   error: string | null;
 }
@@ -66,6 +67,9 @@ export function useSpeech(): UseSpeechReturn {
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const speechSynthesisRef = useRef<SpeechSynthesisUtterance | null>(null);
   const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const autoSubmitCallbackRef = useRef<((transcript: string) => void) | null>(null);
+  const silenceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const finalTranscriptRef = useRef<string>('');
 
   // Check for browser support and initial permission status
   // Play a short sound for listening start/stop
@@ -85,10 +89,44 @@ export function useSpeech(): UseSpeechReturn {
     } catch {}
   };
 
+  // Network connectivity monitoring
+  useEffect(() => {
+    const handleOnline = () => {
+      // Clear network-related errors when connection is restored
+      if (error && error.includes('internet connection')) {
+        setError(null);
+      }
+    };
+
+    const handleOffline = () => {
+      if (isListening && recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+      setError('Speech recognition requires an internet connection. Please check your connection and try again.');
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, [error, isListening]);
+
   useEffect(() => {
     const speechRecognitionSupported = 
       'SpeechRecognition' in window || 'webkitSpeechRecognition' in window;
     const speechSynthesisSupported = 'speechSynthesis' in window;
+    
+    // Check if running on HTTPS (required for production)
+    const isSecureContext = window.isSecureContext || window.location.protocol === 'https:' || window.location.hostname === 'localhost';
+    
+    if (speechRecognitionSupported && !isSecureContext) {
+      setError('Speech recognition requires HTTPS. This feature only works on secure connections.');
+      setIsSupported(false);
+      return;
+    }
     
     setIsSupported(speechRecognitionSupported && speechSynthesisSupported);
     
@@ -151,32 +189,79 @@ export function useSpeech(): UseSpeechReturn {
       }
       
       if (recognitionRef.current) {
-        recognitionRef.current.continuous = false;
+        recognitionRef.current.continuous = true; // Enable continuous listening
         recognitionRef.current.interimResults = true;
         recognitionRef.current.lang = 'en-US';
 
         recognitionRef.current.onstart = () => {
           setIsListening(true);
           setError(null);
+          finalTranscriptRef.current = '';
           playMicSound('start');
         };
 
         recognitionRef.current.onresult = (event: SpeechRecognitionEvent) => {
+          let interimTranscript = '';
           let finalTranscript = '';
+          
           for (let i = event.resultIndex; i < event.results.length; i++) {
             const result = event.results[i];
             if (result.isFinal) {
               finalTranscript += result[0].transcript;
+            } else {
+              interimTranscript += result[0].transcript;
             }
           }
+          
+          // Update final transcript accumulator
           if (finalTranscript) {
-            setTranscript(finalTranscript.trim());
+            finalTranscriptRef.current += finalTranscript;
+          }
+          
+          // Show current transcript (interim + final)
+          const currentTranscript = (finalTranscriptRef.current + interimTranscript).trim();
+          setTranscript(currentTranscript);
+          
+          // Reset silence timeout on any speech activity
+          if (silenceTimeoutRef.current) {
+            clearTimeout(silenceTimeoutRef.current);
+          }
+          
+          // Set up auto-submit on silence (2 seconds of no speech)
+          if (autoSubmitCallbackRef.current && (finalTranscript || finalTranscriptRef.current)) {
+            silenceTimeoutRef.current = setTimeout(() => {
+              const fullTranscript = finalTranscriptRef.current.trim();
+              if (fullTranscript && autoSubmitCallbackRef.current) {
+                // Stop listening and submit
+                if (recognitionRef.current) {
+                  recognitionRef.current.stop();
+                }
+                autoSubmitCallbackRef.current(fullTranscript);
+                setTranscript('');
+                finalTranscriptRef.current = '';
+                autoSubmitCallbackRef.current = null;
+              }
+            }, 2000); // 2 second silence threshold
           }
         };
 
         recognitionRef.current.onend = () => {
           setIsListening(false);
           playMicSound('stop');
+          
+          // Clear timeouts
+          if (silenceTimeoutRef.current) {
+            clearTimeout(silenceTimeoutRef.current);
+          }
+          
+          // If we have a final transcript and auto-submit is enabled, submit it
+          const fullTranscript = finalTranscriptRef.current.trim();
+          if (fullTranscript && autoSubmitCallbackRef.current) {
+            autoSubmitCallbackRef.current(fullTranscript);
+            setTranscript('');
+            finalTranscriptRef.current = '';
+            autoSubmitCallbackRef.current = null;
+          }
         };
 
         recognitionRef.current.onerror = (event: SpeechRecognitionErrorEvent) => {
@@ -184,16 +269,23 @@ export function useSpeech(): UseSpeechReturn {
           // Provide more helpful error messages
           switch (event.error) {
             case 'network':
-              errorMessage = 'Speech recognition requires an internet connection. Please check your connection and try again.';
-              // Auto-retry after 3 seconds for network errors
+              // Distinguish between network connectivity and speech service issues
+              if (navigator.onLine) {
+                errorMessage = 'Speech service temporarily unavailable. This may be due to:\n• Firewall/proxy blocking speech services\n• Google Speech API regional restrictions\n• Corporate network policies\n\nTry using a different network or VPN.';
+              } else {
+                errorMessage = 'No internet connection detected. Please check your network connection and try again.';
+              }
+              
+              // Auto-retry logic with better conditions
               if (retryTimeoutRef.current) {
                 clearTimeout(retryTimeoutRef.current);
               }
               retryTimeoutRef.current = setTimeout(() => {
-                if (navigator.onLine) {
+                // Only clear error if we're actually online and it's been a while
+                if (navigator.onLine && !isListening) {
                   setError(null);
                 }
-              }, 3000);
+              }, 5000);
               break;
             case 'not-allowed':
               errorMessage = 'Microphone access denied. Please allow microphone permissions and try again.';
@@ -201,9 +293,12 @@ export function useSpeech(): UseSpeechReturn {
               break;
             case 'no-speech':
               errorMessage = 'No speech detected. Please speak clearly and try again.';
+              // Auto-clear this error after a short delay since it's not critical
+              setTimeout(() => setError(null), 3000);
               break;
             case 'audio-capture':
               errorMessage = 'Microphone not available. Please check your microphone and try again.';
+              break;
               break;
             case 'service-not-allowed':
               errorMessage = 'Speech recognition service not available. Please try again later.';
@@ -262,9 +357,78 @@ export function useSpeech(): UseSpeechReturn {
     }
   }, [isSupported]);
 
-  const startListening = useCallback(async () => {
+  // Diagnostic function to test speech service connectivity
+  const testSpeechService = useCallback(async (): Promise<boolean> => {
+    if (!recognitionRef.current) return false;
+    
+    return new Promise((resolve) => {
+      const testRecognition = recognitionRef.current!;
+      let testCompleted = false;
+      
+      const cleanup = () => {
+        if (testCompleted) return;
+        testCompleted = true;
+        try {
+          testRecognition.stop();
+        } catch {}
+      };
+
+      // Set up test handlers
+      const originalOnStart = testRecognition.onstart;
+      const originalOnError = testRecognition.onerror;
+      const originalOnEnd = testRecognition.onend;
+
+      testRecognition.onstart = () => {
+        // Service is accessible if we get to start
+        cleanup();
+        resolve(true);
+        // Restore original handlers
+        testRecognition.onstart = originalOnStart;
+        testRecognition.onerror = originalOnError;
+        testRecognition.onend = originalOnEnd;
+      };
+
+      testRecognition.onerror = (event) => {
+        cleanup();
+        resolve(false);
+        // Restore original handlers
+        testRecognition.onstart = originalOnStart;
+        testRecognition.onerror = originalOnError;
+        testRecognition.onend = originalOnEnd;
+      };
+
+      // Timeout the test after 5 seconds
+      setTimeout(() => {
+        cleanup();
+        resolve(false);
+        // Restore original handlers
+        testRecognition.onstart = originalOnStart;
+        testRecognition.onerror = originalOnError;
+        testRecognition.onend = originalOnEnd;
+      }, 5000);
+
+      try {
+        testRecognition.start();
+      } catch {
+        cleanup();
+        resolve(false);
+        // Restore original handlers
+        testRecognition.onstart = originalOnStart;
+        testRecognition.onerror = originalOnError;
+        testRecognition.onend = originalOnEnd;
+      }
+    });
+  }, []);
+
+  const startListening = useCallback(async (onAutoSubmit?: (transcript: string) => void) => {
     if (!isSupported || !recognitionRef.current) {
       setError('Speech recognition is not supported in this browser');
+      return;
+    }
+
+    // Check internet connectivity first
+    if (!navigator.onLine) {
+      setError('No internet connection detected. Please check your network connection and try again.');
       return;
     }
     
@@ -276,8 +440,12 @@ export function useSpeech(): UseSpeechReturn {
       }
     }
     
+    // Set up auto-submit callback
+    autoSubmitCallbackRef.current = onAutoSubmit || null;
+    
     setTranscript('');
     setError(null);
+    finalTranscriptRef.current = '';
     
     try {
       recognitionRef.current.start();
@@ -301,6 +469,13 @@ export function useSpeech(): UseSpeechReturn {
   const stopListening = useCallback(() => {
     if (recognitionRef.current && isListening) {
       recognitionRef.current.stop();
+    }
+    
+    // Clean up auto-submit state
+    autoSubmitCallbackRef.current = null;
+    if (silenceTimeoutRef.current) {
+      clearTimeout(silenceTimeoutRef.current);
+      silenceTimeoutRef.current = null;
     }
   }, [isListening]);
 
@@ -357,6 +532,9 @@ export function useSpeech(): UseSpeechReturn {
       if (retryTimeoutRef.current) {
         clearTimeout(retryTimeoutRef.current);
       }
+      if (silenceTimeoutRef.current) {
+        clearTimeout(silenceTimeoutRef.current);
+      }
     };
   }, []);
 
@@ -370,6 +548,7 @@ export function useSpeech(): UseSpeechReturn {
     speak,
     stopSpeaking,
     requestPermission,
+    testSpeechService,
     transcript,
     error
   };
