@@ -110,6 +110,31 @@ export class SimpleRAGStore {
   }
 
   /**
+   * Get contact information for Abu Rayyan Academy
+   */
+  getContactInfo(): string {
+    return `
+For more detailed information, please contact Abu Rayyan Academy directly:
+
+📞 **Phone**: +974 XXXX XXXX (Main Office)
+📧 **Email**: info@aburayyanacademy.edu.qa
+🏢 **Admissions Office**: admissions@aburayyanacademy.edu.qa
+🌐 **Website**: www.aburayyanacademy.edu.qa
+
+📍 **Address**: Abu Rayyan Academy, Qatar
+
+Our staff is available to assist you with:
+• Detailed program information
+• Admission procedures and requirements
+• Campus tours and visits
+• Financial aid and scholarship opportunities
+• Academic counseling
+
+**Office Hours**: Sunday - Thursday, 8:00 AM - 4:00 PM
+`;
+  }
+
+  /**
    * Get retrieval context for RAG
    */
   async getRetrievalContext(query: string, topK: number = 3): Promise<string> {
@@ -117,17 +142,22 @@ export class SimpleRAGStore {
       const results = await this.searchSimilar(query, topK);
       
       if (results.chunks.length === 0) {
-        return 'No relevant information found in the Abu Rayyan Academy documents.';
+        return `I don't have specific information about that topic readily available at the moment.
+
+For more detailed information, please contact Abu Rayyan Academy directly:
+📞 Phone: +974 XXXX XXXX (Main Office)
+📧 Email: info@aburayyanacademy.edu.qa
+🏢 Admissions: admissions@aburayyanacademy.edu.qa`;
       }
 
-      // Combine the most relevant chunks into context
-      let context = 'Based on the Abu Rayyan Academy documents:\n\n';
+      // Combine the most relevant chunks into context - keep it clean and simple
+      let context = '';
       
       results.chunks.forEach((chunk, index) => {
-        context += `[Document ${index + 1}]:\n${chunk.content}\n\n`;
+        context += `${chunk.content}\n\n`;
       });
 
-      return context;
+      return context.trim();
     } catch (error) {
       console.error('Error getting retrieval context:', error);
       throw new Error(`Failed to get retrieval context: ${error}`);
