@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
+import path from 'path';
+import fs from 'fs';
 
 export async function GET() {
   try {
     // Simple test to see if the endpoint is reachable
     console.log('RAG test endpoint called');
-    
-    const path = require('path');
-    const fs = require('fs');
     
     // Check if the DOCX file exists
     const docPath = path.join(process.cwd(), 'src', 'data', 'Questions about Abu Rayyan Academy.docx');

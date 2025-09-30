@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { documentProcessor } from '@/lib/services/document-processing-service';
 import { ragVectorStore } from '@/lib/services/rag-vector-store';
+import path from 'path';
+import fs from 'fs';
 
 export async function GET() {
   try {
     console.log('Testing RAG components...');
     
     // Test 1: Check if DOCX file exists
-    const path = require('path');
-    const fs = require('fs');
     const docPath = path.join(process.cwd(), 'src', 'data', 'Questions about Abu Rayyan Academy.docx');
     const fileExists = fs.existsSync(docPath);
     
