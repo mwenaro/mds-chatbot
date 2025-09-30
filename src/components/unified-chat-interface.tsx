@@ -52,7 +52,7 @@ const DEFAULT_CONFIG: ChatConfig = {
   enableSpeech: true,
   enableHistory: true,
   autoSave: true,
-  defaultProvider: "chat-groq",
+  defaultProvider: "chat-rag-groq",
   maxMessages: 100,
   showProviderBadge: true,
 };
@@ -152,17 +152,27 @@ export default function UnifiedChatInterface({
   // Handle client-side mounting
   useEffect(() => {
     setMounted(true);
+    
+    // Dynamic welcome message based on provider
+    const getWelcomeMessage = () => {
+      if (aiProvider.includes('rag')) {
+        return "Welcome to Abu Rayyan Academy! I'm here to assist you with information about our programs, admissions, facilities, and everything you need to know about our academy." +
+          (finalConfig.enableSpeech ? " Feel free to speak with me using the microphone or type your questions!" : " How can I help you today?");
+      }
+      return "Hello! I'm your AI assistant. How can I help you today?" +
+        (finalConfig.enableSpeech ? " You can click the microphone to speak with me!" : "");
+    };
+
     const defaultMessages: IMessage[] = [
       {
         id: "1",
-        content: "Hello! I'm your AI assistant. How can I help you today?" +
-          (finalConfig.enableSpeech ? " You can click the microphone to speak with me!" : ""),
+        content: getWelcomeMessage(),
         role: "assistant",
         timestamp: new Date(),
       },
     ];
     setMessages(defaultMessages);
-  }, [finalConfig.enableSpeech]);
+  }, [finalConfig.enableSpeech, aiProvider]);
 
   // Auto-scroll to bottom
   useEffect(() => {
