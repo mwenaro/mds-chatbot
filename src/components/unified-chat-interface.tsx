@@ -19,6 +19,7 @@ import remarkGfm from "remark-gfm";
 import { useSpeech } from "@/hooks/use-speech";
 import { IMessage } from "@/lib/types/conversation";
 import { UnifiedConversationService, UnifiedConversation } from "@/lib/services/unified-conversation-service";
+import Image from "next/image";
 
 // Configuration interface for the chat component
 interface ChatConfig {
@@ -679,7 +680,16 @@ export default function UnifiedChatInterface({
                   </Button>
                 )}
 
-                <h1 className="text-xl font-semibold">MDS Chatbot</h1>
+                <div className="flex items-center gap-2">
+                  <Image 
+                    src="/aa-chatbot-logo.png" 
+                    alt="AA Chatbot Logo" 
+                    width={24} 
+                    height={24}
+                    className="rounded"
+                  />
+                  <h1 className="text-xl font-semibold">AA Chatbot</h1>
+                </div>
 
                 <div className="flex items-center gap-2">
                   {finalConfig.showProviderBadge && (

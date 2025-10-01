@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Home, MessageSquare, FileText } from "lucide-react";
+import Image from "next/image";
 
 export default function Navigation() {
   const pathname = usePathname();
@@ -36,7 +37,16 @@ export default function Navigation() {
       <div className="max-w-6xl mx-auto px-4">
         <div className="flex items-center justify-between h-16">
           <div className="flex items-center space-x-4">
-            <h1 className="text-xl font-bold text-gray-900">MDS Chatbot</h1>
+            <div className="flex items-center space-x-3">
+              <Image 
+                src="/aa-chatbot-logo.png" 
+                alt="AA Chatbot Logo" 
+                width={32} 
+                height={32}
+                className="rounded-lg"
+              />
+              <h1 className="text-xl font-bold text-gray-900">AA Chatbot</h1>
+            </div>
             <div className="hidden md:flex items-center space-x-2">
               {navItems.map((item) => {
                 const Icon = item.icon;
