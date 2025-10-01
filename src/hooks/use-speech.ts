@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from 'react';
+import { EnhancedMediaStream, VoiceActivityDetector, DEFAULT_AUDIO_CONFIG } from '@/lib/audio-utils';
 
 // Type declarations for Speech APIs
 interface SpeechRecognitionEvent {
@@ -46,12 +47,14 @@ interface UseSpeechReturn {
   isSpeaking: boolean;
   isSupported: boolean;
   hasPermission: boolean | null; // null = unknown, true = granted, false = denied
+  isMicMuted: boolean; // New: indicates if mic is muted due to bot speaking
   startListening: (onAutoSubmit?: (transcript: string) => void) => void;
   stopListening: () => void;
   speak: (text: string) => void;
   stopSpeaking: () => void;
   requestPermission: () => Promise<boolean>;
   testSpeechService: () => Promise<boolean>;
+  forceEnableRecording: () => void; // New: allow interrupting bot speech
   transcript: string;
   error: string | null;
 }
@@ -61,6 +64,7 @@ export function useSpeech(): UseSpeechReturn {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isSupported, setIsSupported] = useState(false);
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
+  const [isMicMuted, setIsMicMuted] = useState(false);
   const [transcript, setTranscript] = useState('');
   const [error, setError] = useState<string | null>(null);
 
@@ -70,6 +74,8 @@ export function useSpeech(): UseSpeechReturn {
   const autoSubmitCallbackRef = useRef<((transcript: string) => void) | null>(null);
   const silenceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const finalTranscriptRef = useRef<string>('');
+  const enhancedMediaStreamRef = useRef<EnhancedMediaStream | null>(null);
+  const currentStreamRef = useRef<MediaStream | null>(null);
 
   // Check for browser support and initial permission status
   // Play a short sound for listening start/stop
@@ -326,8 +332,21 @@ export function useSpeech(): UseSpeechReturn {
     try {
       setError(null);
       
-      // Request microphone access
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Initialize enhanced media stream for noise reduction
+      if (!enhancedMediaStreamRef.current) {
+        enhancedMediaStreamRef.current = new EnhancedMediaStream({
+          enableNoiseSuppression: true,
+          enableEchoCancellation: true,
+          enableAutoGainControl: true,
+          highpassFrequency: 100,
+          lowpassFrequency: 8000,
+          volumeThreshold: 0.01,
+        });
+      }
+      
+      // Request enhanced media stream with noise reduction
+      const stream = await enhancedMediaStreamRef.current.getEnhancedStream();
+      currentStreamRef.current = stream;
       
       // Stop the stream immediately - we just needed to request permission
       stream.getTracks().forEach(track => track.stop());
@@ -490,15 +509,41 @@ export function useSpeech(): UseSpeechReturn {
     
     utterance.onstart = () => {
       setIsSpeaking(true);
+      setIsMicMuted(true);
+      
+      // Stop current recording if active
+      if (isListening && recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+      
+      // Mute the microphone stream
+      if (currentStreamRef.current) {
+        const tracks = currentStreamRef.current.getAudioTracks();
+        tracks.forEach(track => track.enabled = false);
+      }
     };
     
     utterance.onend = () => {
       setIsSpeaking(false);
+      setIsMicMuted(false);
+      
+      // Re-enable microphone tracks
+      if (currentStreamRef.current) {
+        const tracks = currentStreamRef.current.getAudioTracks();
+        tracks.forEach(track => track.enabled = true);
+      }
     };
     
     utterance.onerror = (event) => {
       setError(`Speech synthesis error: ${event.error}`);
       setIsSpeaking(false);
+      setIsMicMuted(false);
+      
+      // Re-enable microphone tracks on error
+      if (currentStreamRef.current) {
+        const tracks = currentStreamRef.current.getAudioTracks();
+        tracks.forEach(track => track.enabled = true);
+      }
     };
     
     // Set voice properties
@@ -517,14 +562,37 @@ export function useSpeech(): UseSpeechReturn {
     }
     
     window.speechSynthesis.speak(utterance);
-  }, [isSupported]);
+  }, [isSupported, isListening]);
 
   const stopSpeaking = useCallback(() => {
     if (window.speechSynthesis) {
       window.speechSynthesis.cancel();
       setIsSpeaking(false);
+      setIsMicMuted(false);
+      
+      // Re-enable microphone tracks
+      if (currentStreamRef.current) {
+        const tracks = currentStreamRef.current.getAudioTracks();
+        tracks.forEach(track => track.enabled = true);
+      }
     }
   }, []);
+
+  // Allow user to interrupt bot speech and force enable recording
+  const forceEnableRecording = useCallback(() => {
+    if (isSpeaking) {
+      // Stop bot speech
+      window.speechSynthesis.cancel();
+      setIsSpeaking(false);
+      setIsMicMuted(false);
+      
+      // Re-enable microphone tracks
+      if (currentStreamRef.current) {
+        const tracks = currentStreamRef.current.getAudioTracks();
+        tracks.forEach(track => track.enabled = true);
+      }
+    }
+  }, [isSpeaking]);
 
   // Cleanup timeouts on unmount
   useEffect(() => {
@@ -535,6 +603,16 @@ export function useSpeech(): UseSpeechReturn {
       if (silenceTimeoutRef.current) {
         clearTimeout(silenceTimeoutRef.current);
       }
+      
+      // Cleanup enhanced media stream
+      if (enhancedMediaStreamRef.current) {
+        enhancedMediaStreamRef.current.cleanup();
+      }
+      
+      // Stop any current stream
+      if (currentStreamRef.current) {
+        currentStreamRef.current.getTracks().forEach(track => track.stop());
+      }
     };
   }, []);
 
@@ -543,12 +621,14 @@ export function useSpeech(): UseSpeechReturn {
     isSpeaking,
     isSupported,
     hasPermission,
+    isMicMuted,
     startListening,
     stopListening,
     speak,
     stopSpeaking,
     requestPermission,
     testSpeechService,
+    forceEnableRecording,
     transcript,
     error
   };

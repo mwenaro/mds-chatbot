@@ -91,12 +91,14 @@ export default function UnifiedChatInterface({
     isSpeaking,
     isSupported: speechSupported,
     hasPermission,
+    isMicMuted,
     startListening,
     stopListening,
     speak,
     stopSpeaking,
     requestPermission,
     testSpeechService,
+    forceEnableRecording,
     transcript,
     error: speechError,
   } = finalConfig.enableSpeech ? speech : {
@@ -104,12 +106,14 @@ export default function UnifiedChatInterface({
     isSpeaking: false,
     isSupported: false,
     hasPermission: false,
+    isMicMuted: false,
     startListening: (onAutoSubmit?: (transcript: string) => void) => { },
     stopListening: () => { },
     speak: () => { },
     stopSpeaking: () => { },
     requestPermission: () => Promise.resolve(),
     testSpeechService: () => Promise.resolve(false),
+    forceEnableRecording: () => { },
     transcript: '',
     error: null,
   };
@@ -519,11 +523,24 @@ export default function UnifiedChatInterface({
   );
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    // Allow interrupting bot speech with spacebar
+    if (e.key === " " && isSpeaking) {
+      e.preventDefault();
+      forceEnableRecording();
+      return;
+    }
+    
+    // Prevent input when bot is speaking (except spacebar for interruption)
+    if (isSpeaking) {
+      e.preventDefault();
+      return;
+    }
+    
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       submitMessage();
     }
-  }, [submitMessage]);
+  }, [submitMessage, isSpeaking, forceEnableRecording]);
 
   const toggleListening = useCallback(async () => {
     if (!finalConfig.enableSpeech || !speechSupported) {
@@ -814,12 +831,43 @@ export default function UnifiedChatInterface({
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={handleKeyDown}
-                  placeholder="Type your message... (Enter to send, Shift+Enter for new line)"
-                  disabled={isLoading}
-                  className="flex-1 border-none bg-transparent focus:ring-0 focus:border-none shadow-none px-2 sm:px-3 min-w-0"
+                  placeholder={
+                    isSpeaking 
+                      ? "Bot is speaking... (Press Space to interrupt)" 
+                      : isMicMuted 
+                        ? "Microphone muted during bot speech" 
+                        : "Type your message... (Enter to send, Shift+Enter for new line)"
+                  }
+                  disabled={isLoading || isSpeaking}
+                  className={`flex-1 border-none bg-transparent focus:ring-0 focus:border-none shadow-none px-2 sm:px-3 min-w-0 transition-all duration-200 ${
+                    isSpeaking 
+                      ? 'opacity-60 cursor-not-allowed bg-gray-50 dark:bg-gray-800' 
+                      : ''
+                  }`}
                   style={{ boxShadow: "none" }}
                   autoFocus
                 />
+                
+                {/* Bot speaking indicator */}
+                {isSpeaking && (
+                  <div className="flex items-center gap-2 px-2 text-blue-600 dark:text-blue-400">
+                    <div className="speaking-animation flex gap-1">
+                      <div className="w-1 h-4 bg-blue-500 rounded-full animate-pulse" style={{ animationDelay: '0ms' }}></div>
+                      <div className="w-1 h-4 bg-blue-500 rounded-full animate-pulse" style={{ animationDelay: '150ms' }}></div>
+                      <div className="w-1 h-4 bg-blue-500 rounded-full animate-pulse" style={{ animationDelay: '300ms' }}></div>
+                    </div>
+                    <span className="text-xs">Bot speaking...</span>
+                    <Button
+                      onClick={forceEnableRecording}
+                      variant="ghost"
+                      size="sm"
+                      className="text-xs px-2 py-1 h-6"
+                      title="Interrupt bot speech"
+                    >
+                      Interrupt
+                    </Button>
+                  </div>
+                )}
                 {finalConfig.enableSpeech && !speechSupported && (
                   <div className="text-xs text-red-500 px-2" title="Speech recognition is not supported in your browser or device.">
                     <MicOff className="inline h-4 w-4 mr-1 align-text-bottom" />
@@ -828,17 +876,40 @@ export default function UnifiedChatInterface({
                 )}
                 {finalConfig.enableSpeech && speechSupported && (
                   <Button
-                    onClick={toggleListening}
+                    onClick={isMicMuted ? forceEnableRecording : toggleListening}
                     variant="ghost"
                     size="icon"
-                    className={`rounded-full relative transition-all duration-300 ${isListening ? "bg-red-500 hover:bg-red-600 text-white animate-pulse-mic" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}
-                    title={isListening ? "Stop Listening" : "Start Listening"}
-                    style={isListening ? { boxShadow: '0 0 0 4px rgba(239,68,68,0.3)' } : {}}
+                    className={`rounded-full relative transition-all duration-300 ${
+                      isMicMuted 
+                        ? "bg-orange-500 hover:bg-orange-600 text-white" 
+                        : isListening 
+                          ? "bg-red-500 hover:bg-red-600 text-white animate-pulse-mic" 
+                          : "hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                    }`}
+                    title={
+                      isMicMuted 
+                        ? "Microphone muted (bot speaking) - Click to interrupt" 
+                        : isListening 
+                          ? "Stop Listening" 
+                          : "Start Listening"
+                    }
+                    style={isListening ? { boxShadow: '0 0 0 4px rgba(239,68,68,0.3)' } : isMicMuted ? { boxShadow: '0 0 0 4px rgba(249,115,22,0.3)' } : {}}
+                    disabled={isSpeaking && !isMicMuted}
                   >
-                    {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                    {isMicMuted ? (
+                      <MicOff className="h-4 w-4" />
+                    ) : isListening ? (
+                      <MicOff className="h-4 w-4" />
+                    ) : (
+                      <Mic className="h-4 w-4" />
+                    )}
                     {/* Animated ring for listening */}
-                    {isListening && (
+                    {isListening && !isMicMuted && (
                       <span className="absolute inset-0 rounded-full border-2 border-red-400 animate-pulse pointer-events-none" style={{ boxShadow: '0 0 0 6px rgba(239,68,68,0.15)' }} />
+                    )}
+                    {/* Muted indicator */}
+                    {isMicMuted && (
+                      <span className="absolute inset-0 rounded-full border-2 border-orange-400 animate-pulse pointer-events-none" style={{ boxShadow: '0 0 0 6px rgba(249,115,22,0.15)' }} />
                     )}
                   </Button>
                 )}
