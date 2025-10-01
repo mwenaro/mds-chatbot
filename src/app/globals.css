@@ -133,6 +133,96 @@
   }
 }
 
+@keyframes speaking-indicator {
+  0%, 100% { 
+    transform: scaleY(0.3); 
+    opacity: 0.4; 
+  }
+  50% { 
+    transform: scaleY(1); 
+    opacity: 1; 
+  }
+}
+
+@keyframes mic-muted-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(249,115,22,0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(249,115,22,0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(249,115,22,0);
+  }
+}
+
+@keyframes input-disabled-fade {
+  0%, 100% { 
+    opacity: 0.6; 
+  }
+  50% { 
+    opacity: 0.8; 
+  }
+}
+
 .animate-pulse-mic {
   animation: pulse-mic 1.2s infinite;
+}
+
+.speaking-animation > div {
+  animation: speaking-indicator 0.6s ease-in-out infinite;
+}
+
+.speaking-animation > div:nth-child(2) {
+  animation-delay: 0.1s;
+}
+
+.speaking-animation > div:nth-child(3) {
+  animation-delay: 0.2s;
+}
+
+.mic-muted {
+  animation: mic-muted-pulse 1.5s infinite;
+}
+
+.input-disabled-during-speech {
+  animation: input-disabled-fade 2s ease-in-out infinite;
+  transition: all 0.3s ease;
+}
+
+/* Bot speaking indicator styles */
+.bot-speaking-indicator {
+  @apply flex items-center gap-2 px-3 py-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg text-blue-700 dark:text-blue-300;
+}
+
+.bot-speaking-indicator .speaking-dots {
+  @apply flex gap-1;
+}
+
+.bot-speaking-indicator .speaking-dots > div {
+  @apply w-2 h-2 bg-blue-500 rounded-full;
+  animation: speaking-indicator 1s ease-in-out infinite;
+}
+
+/* Microphone muted indicator */
+.mic-muted-indicator {
+  @apply flex items-center gap-2 px-2 py-1 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded text-orange-700 dark:text-orange-300 text-xs;
+}
+
+/* Enhanced input states */
+.chat-input-disabled {
+  @apply bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400 cursor-not-allowed;
+}
+
+.chat-input-disabled::placeholder {
+  @apply text-gray-400 dark:text-gray-500;
+}
+
+/* Interrupt button styling */
+.interrupt-button {
+  @apply bg-red-100 hover:bg-red-200 dark:bg-red-900/20 dark:hover:bg-red-900/40 text-red-700 dark:text-red-300 border border-red-300 dark:border-red-700 transition-all duration-200;
+}
+
+.interrupt-button:hover {
+  @apply scale-105 shadow-md;
 }
