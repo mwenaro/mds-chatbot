@@ -8,6 +8,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Send, Bot, User } from "lucide-react";
+import Image from "next/image";
 
 interface Message {
   id: string;
@@ -104,12 +105,18 @@ export  function ChatInterface() {
         <div className="flex items-center gap-3">
           <Avatar>
             <AvatarFallback>
-              <Bot className="h-6 w-6" />
+              <Image 
+                src="/aa-chatbot-logo.png" 
+                alt="AA Chatbot Logo" 
+                width={24} 
+                height={24}
+                className="rounded"
+              />
             </AvatarFallback>
           </Avatar>
           <div>
-            <h1 className="text-xl font-semibold">MDS Chatbot</h1>
-            <p className="text-sm text-muted-foreground">AI-powered assistant</p>
+            <h1 className="text-xl font-semibold">AA Chatbot</h1>
+            <p className="text-sm text-muted-foreground">Abu Rayyan Academy AI assistant</p>
           </div>
         </div>
         <Badge variant="secondary" className="flex items-center gap-1">

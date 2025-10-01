@@ -12,6 +12,7 @@ import AIProviderSelector from "./ai-provider-selector";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useSpeech } from "@/hooks/use-speech";
+import Image from "next/image";
 
 interface Message {
   id: string;
@@ -244,13 +245,19 @@ export default function ChatInterface() {
         <div className="flex items-center gap-3">
           <Avatar>
             <AvatarFallback>
-              <Bot className="h-6 w-6" />
+              <Image 
+                src="/aa-chatbot-logo.png" 
+                alt="AA Chatbot Logo" 
+                width={24} 
+                height={24}
+                className="rounded"
+              />
             </AvatarFallback>
           </Avatar>
           <div>
-            <h1 className="text-xl font-semibold">MDS Chatbot</h1>
+            <h1 className="text-xl font-semibold">AA Chatbot</h1>
             <p className="text-sm text-muted-foreground">
-              AI-powered assistant
+              Abu Rayyan Academy AI assistant
               {mounted && speechSupported && (
                 <span className="ml-2 text-green-600">🎤 Voice enabled</span>
               )}
