@@ -2,11 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { ChatOpenAI } from '@langchain/openai';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { ragVectorStore } from '@/lib/services/rag-vector-store';
+import { AIConfigurationService } from '@/lib/services/ai-configuration';
+import { SystemPromptsService } from '@/lib/services/system-prompts';
+import { ResponseValidator } from '@/lib/services/response-validator';
 
 export async function POST(req: NextRequest) {
   try {
     // Parse the request body
-    const { message } = await req.json();
+    const { message, useAntiHallucination = true } = await req.json();
 
     if (!message) {
       return NextResponse.json(
@@ -37,47 +40,36 @@ export async function POST(req: NextRequest) {
     
     console.log('Retrieved context length:', retrievalContext.length);
 
-    // Initialize ChatOpenAI with streaming enabled
-    const chatModel = new ChatOpenAI({
-      model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
-      temperature: parseFloat(process.env.OPENAI_TEMPERATURE || '0.7'),
-      maxTokens: parseInt(process.env.OPENAI_MAX_TOKENS || '1500'),
-      openAIApiKey: process.env.OPENAI_API_KEY,
-      streaming: true,
-    });
+    // Use anti-hallucination configuration for RAG
+    const useCase = useAntiHallucination ? 'factual' : 'balanced';
+    const modelConfig = AIConfigurationService.getOpenAIConfig(useCase);
 
-    // Create enhanced system message for RAG
-    const systemPrompt = `You are an official AI assistant representing Abu Rayyan Academy. You are part of the academy's administration and speak with full authority about the institution.
+    // Initialize ChatOpenAI with anti-hallucination settings
+    const chatModel = new ChatOpenAI(modelConfig);
 
-IMPORTANT GUIDELINES:
-1. Respond as an official representative of Abu Rayyan Academy - use "we", "our academy", "at Abu Rayyan Academy"
-2. Never say "According to the document" or reference external sources
-3. Keep responses concise and natural - don't over-explain simple questions
-4. Be welcoming, professional, and helpful
-5. Only provide contact information when you genuinely don't know something or when someone specifically asks for contact details
+    // Create enhanced system message for RAG with anti-hallucination measures
+    const baseRAGPrompt = SystemPromptsService.getSystemPrompt('rag');
+    const systemPrompt = `${baseRAGPrompt}
 
-RESPONSE STYLE:
-- For simple factual questions: Give direct, brief answers
-- For complex questions: Provide more detailed responses
-- For unknown information: Politely say you don't have that information and provide contact details
-- Avoid unnecessary elaboration or marketing language for basic questions
+You are an official AI assistant representing Abu Rayyan Academy. You are part of the academy's administration and speak with full authority about the institution.
 
-WHEN TO PROVIDE CONTACT INFO:
-- Only when you don't have the information
-- When someone asks "how to contact" or "who to speak with"
-- When someone needs specific details not in your knowledge
-- NOT for every response
+CRITICAL ANTI-HALLUCINATION GUIDELINES:
+1. ONLY use information from the provided context documents
+2. If information is not in the context, clearly state "I don't have that specific information"
+3. Never make up details about programs, dates, fees, or procedures
+4. Do not invent contact information or URLs
+5. When uncertain, recommend contacting the academy directly
 
-TONE:
-- Natural and conversational
-- Professional but not overly formal
-- Confident about academy information
-- Concise for simple questions, detailed when needed
+RESPONSE GUIDELINES:
+- Respond as an official representative using "we", "our academy", "at Abu Rayyan Academy"
+- Keep responses concise and natural
+- Be welcoming, professional, and helpful
+- Only provide contact information when you genuinely don't know something
 
-Abu Rayyan Academy Information:
+Abu Rayyan Academy Context Information:
 ${retrievalContext}
 
-Remember: Answer naturally and concisely. You ARE Abu Rayyan Academy's representative.`;
+IMPORTANT: Base your response ONLY on the context provided above. If the context doesn't contain sufficient information to answer the question, say so and recommend contacting the academy.`;
 
     // Create a readable stream for the response
     const encoder = new TextEncoder();
@@ -123,6 +115,28 @@ Remember: Answer naturally and concisely. You ARE Abu Rayyan Academy's represent
             }
           }
           
+          // Validate the complete response for hallucinations
+          const validation = ResponseValidator.validateResponse(fullResponse, retrievalContext);
+          if (!validation.isValid) {
+            console.warn('RAG response validation warnings:', validation.warnings);
+            
+            // Send validation warning as a separate chunk
+            const validationData = {
+              content: '\n\n*⚠️ Note: Please verify specific details with Abu Rayyan Academy directly, especially dates, fees, or contact information.*',
+              done: false,
+              metadata: {
+                provider: 'rag-openai',
+                validation: {
+                  confidence: validation.confidence,
+                  warnings: validation.warnings
+                }
+              }
+            };
+            controller.enqueue(
+              encoder.encode(`data: ${JSON.stringify(validationData)}\n\n`)
+            );
+          }
+          
           // Send final chunk with completion metadata
           const finalChunk = {
             content: '',
@@ -133,7 +147,11 @@ Remember: Answer naturally and concisely. You ARE Abu Rayyan Academy's represent
               totalChunks: chunkCount,
               responseLength: fullResponse.length,
               contextUsed: retrievalContext.length > 100,
-              contextLength: retrievalContext.length
+              contextLength: retrievalContext.length,
+              validation: validation.isValid ? undefined : {
+                confidence: validation.confidence,
+                warnings: validation.warnings
+              }
             }
           };
           

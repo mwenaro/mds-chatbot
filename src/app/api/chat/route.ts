@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ChatOpenAI } from '@langchain/openai';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
+import { AIConfigurationService } from '@/lib/services/ai-configuration';
+import { SystemPromptsService } from '@/lib/services/system-prompts';
+import { ResponseValidator } from '@/lib/services/response-validator';
 
 export async function POST(req: NextRequest) {
   try {
     // Parse the request body
-    const { message } = await req.json();
+    const { message, useAntiHallucination = true } = await req.json();
 
     if (!message) {
       return NextResponse.json(
@@ -23,16 +26,20 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    console.log('Initializing ChatOpenAI with model:', process.env.OPENAI_MODEL || 'gpt-4o-mini');
+    console.log('Initializing ChatOpenAI with anti-hallucination config');
 
-    // Initialize ChatOpenAI with streaming enabled
-    const chatModel = new ChatOpenAI({
-      model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
-      temperature: parseFloat(process.env.OPENAI_TEMPERATURE || '0.7'),
-      maxTokens: parseInt(process.env.OPENAI_MAX_TOKENS || '1000'),
-      openAIApiKey: process.env.OPENAI_API_KEY,
-      streaming: true,
+    // Use anti-hallucination configuration
+    const useCase = useAntiHallucination ? 'factual' : 'balanced';
+    const modelConfig = AIConfigurationService.getOpenAIConfig(useCase);
+    
+    console.log('Model config:', {
+      model: modelConfig.model,
+      temperature: modelConfig.temperature,
+      maxTokens: modelConfig.maxTokens
     });
+
+    // Initialize ChatOpenAI with anti-hallucination settings
+    const chatModel = new ChatOpenAI(modelConfig);
 
     // Create a readable stream for the response
     const encoder = new TextEncoder();
@@ -42,21 +49,33 @@ export async function POST(req: NextRequest) {
         try {
           console.log('Starting stream for message:', message.substring(0, 50) + '...');
           
-          // Create the messages array with system message for better responses
+          // Detect domain and get appropriate system prompt
+          const domain = SystemPromptsService.detectDomain(message);
+          const systemPrompt = SystemPromptsService.getDomainPrompt(domain);
+          
+          // Add uncertainty context if needed
+          const enhancedMessage = SystemPromptsService.addUncertaintyContext(message);
+          
+          // Create the messages array with anti-hallucination system prompt
           const messages = [
-            new SystemMessage("You are a helpful AI assistant. Be conversational, helpful, and provide accurate information."),
-            new HumanMessage(message),
+            new SystemMessage(systemPrompt),
+            new HumanMessage(enhancedMessage),
           ];
+          
+          console.log('Using domain-specific prompt for:', domain);
           
           // Stream the response
           const streamingResponse = await chatModel.stream(messages);
           
           let tokenCount = 0;
+          let fullResponse = '';
+          
           for await (const chunk of streamingResponse) {
             tokenCount++;
             const content = chunk.content;
             
             if (content && typeof content === 'string' && content.length > 0) {
+              fullResponse += content;
               console.log(`Token ${tokenCount}:`, content);
               
               // Format the chunk as Server-Sent Events
@@ -74,10 +93,33 @@ export async function POST(req: NextRequest) {
           
           console.log(`Stream completed with ${tokenCount} tokens`);
           
+          // Validate the complete response
+          const validation = ResponseValidator.validateResponse(fullResponse);
+          if (!validation.isValid) {
+            console.warn('Response validation warnings:', validation.warnings);
+            
+            // Send validation warning as a separate chunk
+            const validationData = JSON.stringify({
+              content: '\n\n*⚠️ Note: Please verify the information provided above, especially any specific dates, numbers, or URLs mentioned.*',
+              done: false,
+              validation: {
+                confidence: validation.confidence,
+                warnings: validation.warnings
+              }
+            });
+            controller.enqueue(
+              encoder.encode(`data: ${validationData}\n\n`)
+            );
+          }
+          
           // Send final message to indicate completion
           const finalData = JSON.stringify({ 
             content: '',
-            done: true 
+            done: true,
+            validation: validation.isValid ? undefined : {
+              confidence: validation.confidence,
+              warnings: validation.warnings
+            }
           });
           controller.enqueue(
             encoder.encode(`data: ${finalData}\n\n`)
