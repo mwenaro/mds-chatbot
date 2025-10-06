@@ -80,113 +80,43 @@ function createDocumentBasedResponse(context: string, query: string): NextRespon
 }
 
 function containsPotentialHallucination(text: string, context: string = ''): boolean {
-  // Comprehensive hallucination detection patterns
-  const hallucinationPatterns = [
-    // Staff/Personnel fabrication - ENHANCED for specific format
-    /we have the following (heads of departments|department heads|staff members|teachers|faculty)/i,
-    /here are the (heads of departments|department heads|staff members|teachers|faculty)/i,
-    /following.*heads of departments/i,
-    /\b(Mr\.|Mrs\.|Ms\.|Sheikh|Imam|Dr\.|Professor)\s+[A-Z][a-z]+\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*/,
-    
-    // Department structure fabrication - SPECIFIC PATTERNS
-    /(Academic|Islamic|Tahfidh|ICT|Student Affairs|Administration|Mathematics|Science|English|History|Geography|Chemistry|Physics|Biology|Kiswahili|Arabic|French|Computer|Sports|Music|Art|Guidance|Counselling).*Department:\s+(Mr\.|Mrs\.|Ms\.|Sheikh|Madam|Dr\.)/i,
-    /Department:\s+(Mr\.|Mrs\.|Ms\.|Sheikh|Madam|Dr\.)/i,
-    /these department heads/i,
-    /department heads oversee/i,
-    /respective areas and work/i,
-    
-    // Organizational structure fabrication
-    /heads of departments.*:\s*\n/i,
-    /department heads include/i,
-    /following are.*heads/i,
-    /head of.*department/i,
-    /current heads.*are/i,
-    /department.*led by/i,
-    
-    // Contact information fabrication
-    /email:\s*[a-zA-Z0-9._%+-]+@(?!aburayyanacademy\.com)[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/i,
-    /phone.*:?\s*(?!0722299287|0723755108)\+?[\d\s\-()]{7,}/,
-    /website.*:?\s*(?!.*aburayyanacademy)[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/i,
-    
-    // Fee/Cost fabrication (not matching known fees)
-    /(?:fee|cost|tuition).*(?:ksh\.?\s*(?!13000|15500|17000|18500|24500|35000|2000|5000|250|2500|3000|7000|10000)\d+)/i,
-    
-    // Program/Course fabrication
-    /(?:we offer|programs include|courses available).*(?!CBE|Islamic Integrated|Tahfidh|ICT Program|Tuition Program)/i,
-    
-    // Facility fabrication
-    /facilities include.*(?!spacious classrooms|assembly hall|multi-purpose hall|ICT lab|science lab|school canteen)/i,
-    
-    // Location/Address fabrication
-    /located at.*(?!Ronald Ngala Road|opposite Petro Gas Station|Mombasa)/i,
-    
-    // General list fabrication indicators
-    /here is a (?:complete )?list of/i,
-    /the following (?:are|is) (?:a )?(?:complete )?(?:list|listing)/i,
-    /(?:complete|full|detailed) (?:list|listing|breakdown) of/i,
-    
-    // Specific detail fabrication
-    /established in.*(?!January 2017)/i,
-    /founded in.*(?!January 2017)/i,
-    /motto.*(?!Learners Today.*Leaders Tomorrow)/i,
-    
-    // Generic confidence indicators that may mask uncertainty
-    /(?:our records show|according to our database|as per our information)(?! from our records)/i,
-  ];
-  
-  // Check for patterns
-  const hasPattern = hallucinationPatterns.some(pattern => pattern.test(text));
-  
-  // Additional specific check for the exact problematic format
-  const problematicFormat = /Department:\s+[A-Z]/i.test(text) && 
-                           /Mr\.|Ms\.|Mrs\.|Sheikh|Dr\./.test(text) &&
-                           /department heads oversee|respective areas/i.test(text);
-  
-  // Context-based validation: check if mentioned names/details exist in context
-  if (context) {
-    const contextValidation = validateAgainstContext(text, context);
-    return hasPattern || problematicFormat || !contextValidation.isValid;
+  // Dynamic hallucination detection based purely on context validation
+  if (!context) {
+    return false; // Can't validate without context
   }
   
-  return hasPattern || problematicFormat;
+  // 1. Check if response contains information that's not in the context
+  const contextValidation = validateAgainstContext(text, context);
+  if (!contextValidation.isValid) {
+    console.log('Hallucination detected: Information not found in context', contextValidation.issues);
+    return true;
+  }
+  
+  // 2. Check for fabricated lists or inventories
+  const hasFabricatedList = detectFabricatedLists(text, context);
+  if (hasFabricatedList) {
+    console.log('Hallucination detected: Fabricated list structure');
+    return true;
+  }
+  
+  // 3. Check for specific names or contacts not in context
+  if (hasUnverifiedNames(text, context)) {
+    console.log('Hallucination detected: Names not found in context');
+    return true;
+  }
+  
+  return false;
 }
 
-function validateAgainstContext(text: string, context: string): {isValid: boolean, issues: string[]} {
+function validateAgainstContext(text: string, context: string): { isValid: boolean; issues: string[] } {
   const issues: string[] = [];
   
-  // Extract names from response
-  const namePattern = /\b(Mr\.|Mrs\.|Ms\.|Sheikh|Imam|Dr\.|Professor)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/g;
-  const namesInResponse = [];
-  let match;
+  // Extract specific claims from the text that need validation
+  const specificClaims = extractSpecificClaims(text);
   
-  while ((match = namePattern.exec(text)) !== null) {
-    namesInResponse.push(match[0]);
-  }
-  
-  // Check if names exist in context
-  for (const name of namesInResponse) {
-    if (!context.toLowerCase().includes(name.toLowerCase())) {
-      issues.push(`Name "${name}" not found in source documents`);
-    }
-  }
-  
-  // Extract email addresses
-  const emailPattern = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
-  const emailsInResponse = text.match(emailPattern) || [];
-  
-  for (const email of emailsInResponse) {
-    if (!context.toLowerCase().includes(email.toLowerCase())) {
-      issues.push(`Email "${email}" not found in source documents`);
-    }
-  }
-  
-  // Extract phone numbers
-  const phonePattern = /(?:\+254|0)\d{9}/g;
-  const phonesInResponse = text.match(phonePattern) || [];
-  
-  for (const phone of phonesInResponse) {
-    if (!context.toLowerCase().includes(phone)) {
-      issues.push(`Phone number "${phone}" not found in source documents`);
+  for (const claim of specificClaims) {
+    if (!context.toLowerCase().includes(claim.toLowerCase())) {
+      issues.push(`Claim not found in context: "${claim}"`);
     }
   }
   
@@ -196,10 +126,94 @@ function validateAgainstContext(text: string, context: string): {isValid: boolea
   };
 }
 
-export async function POST(req: NextRequest) {
+function extractSpecificClaims(text: string): string[] {
+  const claims: string[] = [];
+  
+  // Extract names in patterns like "Mr. X", "Dr. Y", etc.
+  const namePattern = /(Mr\.|Mrs\.|Ms\.|Dr\.|Sheikh|Professor|Miss)\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*/g;
+  const nameMatches = text.match(namePattern);
+  if (nameMatches) {
+    claims.push(...nameMatches);
+  }
+  
+  // Extract organizational positions
+  const positionPattern = /(Head of|Director of|Principal of|Coordinator of|Manager of)\s+[A-Za-z\s]+/gi;
+  const positionMatches = text.match(positionPattern);
+  if (positionMatches) {
+    claims.push(...positionMatches);
+  }
+  
+  // Extract department structures
+  const deptPattern = /Department.*?:[^:\n]+/gi;
+  const deptMatches = text.match(deptPattern);
+  if (deptMatches) {
+    claims.push(...deptMatches);
+  }
+  
+  return claims;
+}
+
+function detectFabricatedLists(text: string, context: string): boolean {
+  // Check for list patterns that might be fabricated
+  const listPatterns = [
+    /Department.*?:.*?Mr\.|Mrs\.|Dr\./gi,
+    /\d+\.\s+.*?Department/gi,
+    /•.*?Department.*?:/gi,
+    /-.*?Department.*?:/gi
+  ];
+  
+  for (const pattern of listPatterns) {
+    const matches = text.match(pattern);
+    if (matches && matches.length > 2) { // Multiple structured items
+      // Check if these structured items are actually in the context
+      const unverified = matches.filter(match => 
+        !context.toLowerCase().includes(match.toLowerCase().replace(/[•\-\d\.:]/g, '').trim())
+      );
+      if (unverified.length > 0) {
+        return true;
+      }
+    }
+  }
+  
+  return false;
+}
+
+function hasUnverifiedNames(text: string, context: string): boolean {
+  // Extract all proper names and check if they exist in context
+  const namePattern = /\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b/g;
+  const names = text.match(namePattern);
+  
+  if (!names || names.length === 0) return false;
+  
+  // Filter to likely person names (those with titles or in organizational context)
+  const personNames = names.filter(name => {
+    const surrounding = text.toLowerCase();
+    const nameIndex = surrounding.indexOf(name.toLowerCase());
+    if (nameIndex === -1) return false;
+    
+    const before = surrounding.substring(Math.max(0, nameIndex - 20), nameIndex);
+    const after = surrounding.substring(nameIndex, Math.min(surrounding.length, nameIndex + name.length + 20));
+    
+    const hasTitle = /\b(mr|mrs|ms|dr|sheikh|professor|miss)\b/.test(before);
+    const hasRole = /(head|director|principal|coordinator|manager|teacher)/.test(before + after);
+    
+    return hasTitle || hasRole;
+  });
+  
+  // Check if person names exist in context
+  const unverifiedNames = personNames.filter(name => 
+    !context.toLowerCase().includes(name.toLowerCase())
+  );
+  
+  return unverifiedNames.length > 0;
+}
+
+export async function POST(request: NextRequest) {
   try {
-    // Parse the request body
-    const { message, useAntiHallucination = true } = await req.json();
+    console.log('RAG API endpoint called');
+    
+    const body = await request.json();
+    const { message, useAntiHallucination = true } = body;
 
     if (!message) {
       return NextResponse.json(
@@ -208,26 +222,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Validate OpenAI API key
-    if (!process.env.OPENAI_API_KEY) {
-      console.error('OpenAI API key not found in environment variables');
-      return NextResponse.json(
-        { error: 'OpenAI API key not configured' },
-        { status: 500 }
-      );
-    }
+    console.log('Processing RAG query:', message.substring(0, 100) + '...');
 
-    console.log('RAG Query:', message.substring(0, 100) + '...');
+    // Initialize the document analyzer
+    const documentAnalyzer = new DocumentAnalyzer();
 
-    // Pre-process query to detect high-risk questions
+    // Pre-query risk assessment
     const isHighRisk = isHighRiskQuery(message);
     const isOrgQuery = isOrganizationalQuery(message);
-    
-    // Initialize the vector store if not already done
-    if (!ragVectorStore.isReady()) {
-      console.log('Initializing RAG vector store...');
-      await ragVectorStore.initialize();
-    }
 
     // Get relevant context from the documents
     const retrievalContext = await ragVectorStore.getRetrievalContext(message, 3);
@@ -277,67 +279,53 @@ export async function POST(req: NextRequest) {
 
     // Create enhanced system message for RAG with comprehensive anti-hallucination measures
     const baseRAGPrompt = SystemPromptsService.getSystemPrompt('rag');
+    
+    // Build comprehensive system prompt with dynamic anti-hallucination
+    const organizationAnalysis = DocumentAnalyzer.analyzeOrganizationalStructure(retrievalContext);
+    
     const systemPrompt = `${baseRAGPrompt}
 
-You are an official AI assistant representing Abu Rayyan Academy. You are part of the academy's administration and speak with full authority about the institution.
+You are an AI assistant that provides information based EXCLUSIVELY on the provided document context. Your role is to be helpful while maintaining strict accuracy.
 
-🚨 CRITICAL: ABU RAYYAN ACADEMY DOES NOT HAVE "HEADS OF DEPARTMENTS" OR "DEPARTMENT HEADS"
+🛡️ DYNAMIC ANTI-HALLUCINATION PROTOCOL:
 
-COMPREHENSIVE ANTI-HALLUCINATION PROTOCOL:
+🚫 ABSOLUTE PROHIBITIONS:
+1. NEVER invent, create, or fabricate ANY information not explicitly present in the provided context
+2. NEVER create organizational charts, staff lists, or personnel directories beyond what's documented
+3. NEVER provide specific details about individuals, roles, or contacts unless EXPLICITLY stated in context
+4. NEVER make assumptions about organizational structures, hierarchies, or administrative details
+5. NEVER create comprehensive lists or inventories that go beyond the provided information
 
-🚫 ABSOLUTE PROHIBITIONS - NEVER DO THESE:
+✅ MANDATORY RESPONSE GUIDELINES:
+1. ONLY use information EXPLICITLY present in the provided context documents
+2. If asked about organizational structure, only describe what is clearly documented
+3. When information is incomplete, acknowledge limitations clearly
+4. Use exact quotes or close paraphrases from the source documents when possible
+5. Distinguish between what is documented vs. what might need verification
 
-EXAMPLE OF WHAT YOU MUST NEVER SAY:
-❌ "We have the following Heads of Departments at Abu Rayyan Academy:
-   Academic Department: Mr. [Any Name]
-   Islamic Department: Mr. [Any Name]
-   Tahfidh Department: Mr. [Any Name]
-   ICT Department: Mr. [Any Name]
-   Student Affairs Department: Ms. [Any Name]
-   Administration Department: Mr. [Any Name]"
+📋 DOCUMENT-BASED RESPONSES:
+- For leadership questions: Only mention positions and names explicitly listed in the context
+- For organizational queries: Only describe structures clearly documented, don't assume standard formats
+- For contact requests: Only provide information explicitly given in the documents
+- For lists or inventories: Only include items specifically mentioned, acknowledge if incomplete
 
-❌ NEVER use the format "Department: Mr./Ms./Mrs. [Name]"
-❌ NEVER create lists of department heads
-❌ NEVER invent names like "Mr. Abdifatah Hussein", "Mr. Yusuf Abdi", "Mr. Hassan Mohamed", etc.
-❌ NEVER say "These department heads oversee their respective areas"
+🔍 RESPONSE INDICATORS:
+- "According to the documents provided..."
+- "Based on the available information..."
+- "The documents indicate..."
+- "I don't have complete information about..."
+- "For additional details not covered in the documents..."
 
-🔍 WHAT THE DOCUMENTS ACTUALLY CONTAIN:
-The school has ONLY:
-- Directors: Dr. Abdirazack Yussuf Abdinur & Madam Salatha Mohammed
-- Principal: Mr. Duke Okioga
-- Sectional Heads (NOT department heads):
-  * Junior & Senior School Section – Mr. Duke Okioga
-  * Upper Primary School Section – Mr. Wekesa  
-  * Pre-Primary & Lower Primary School Section – Madam Celestine
+CONTEXT-DRIVEN APPROACH:
+- Start with what you CAN confirm from the documents
+- Clearly indicate when information is limited or incomplete
+- Suggest contacting the institution directly for information not in documents
+- Never fill gaps with plausible-sounding but unverified information
 
-✅ CORRECT RESPONSES FOR DEPARTMENT HEAD QUERIES:
-- "Abu Rayyan Academy does not have designated heads of departments. The school has sectional heads for different grade levels."
-- "I don't have information about department heads because the school doesn't operate with that structure."
-- "For information about staff assignments and academic oversight, please contact the academy directly."
-
-🛡️ MANDATORY CHECKS BEFORE RESPONDING:
-1. Does my response mention "Department: Mr./Ms./Mrs."? → If YES, STOP and give safe response
-2. Am I listing department heads? → If YES, STOP and give safe response  
-3. Am I inventing any names not in the context? → If YES, STOP and give safe response
-4. Does the context actually support what I'm saying? → If NO, STOP and give safe response
-
-� CONTEXT VALIDATION RULES:
-- ONLY use information EXPLICITLY present in the provided context documents
-- If information is not in the context, you MUST say "I don't have that specific information"
-- When uncertain, ALWAYS recommend contacting the academy directly
-- Never make assumptions about organizational structure
-
-Abu Rayyan Academy Context Information:
+Context Information:
 ${retrievalContext}
 
-🎯 FINAL VERIFICATION PROTOCOL:
-Before sending ANY response about staff or organization:
-1. Check: Does my response create a list of department heads? → If YES, replace with safe response
-2. Check: Does my response mention names not in the context above? → If YES, replace with safe response
-3. Check: Am I using the format "Department: Person"? → If YES, replace with safe response
-
-SAFE RESPONSE TEMPLATE FOR DEPARTMENT HEAD QUERIES:
-"Abu Rayyan Academy does not have designated heads of departments. The school has sectional heads for different grade levels and the principal oversees academic matters. For specific information about staff responsibilities, please contact Abu Rayyan Academy directly at 0722299287 / 0723755108 or info@aburayyanacademy.com."`;
+FINAL VERIFICATION: Before responding, ensure EVERY specific detail (names, positions, procedures, contacts, claims) is explicitly present in the context above. If not found in context, acknowledge the limitation and suggest appropriate next steps for the user.`;
 
     // Create a readable stream for the response
     const encoder = new TextEncoder();
@@ -372,13 +360,7 @@ SAFE RESPONSE TEMPLATE FOR DEPARTMENT HEAD QUERIES:
                 console.warn('Potential hallucination detected in streaming response');
                 
                 // Send a corrective response instead
-                const safeResponse = `I apologize, but I need to be careful about the accuracy of my response. Based on the information I have access to, I cannot provide specific details about that topic. For the most accurate and up-to-date information about Abu Rayyan Academy, please contact them directly at:
-
-📞 Phone: 0722299287 / 0723755108
-📧 Email: info@aburayyanacademy.com
-📍 Location: Along Ronald Ngala Road, opposite Petro Gas Station, Mombasa
-
-They will be able to provide you with verified information.`;
+                const safeResponse = `I apologize, but I need to be careful about the accuracy of my response. Based on the information I have access to, I cannot provide specific details about that topic. For the most accurate and up-to-date information, please contact the institution directly using their official contact information.`;
                 
                 const correctionData = {
                   content: safeResponse,
@@ -394,97 +376,75 @@ They will be able to provide you with verified information.`;
                   encoder.encode(`data: ${JSON.stringify(correctionData)}\n\n`)
                 );
                 
-                // Skip sending the actual AI content and break
-                break;
-              }
-              
-              // Send each chunk to the client only if no hallucination detected
-              if (!hallucinationDetected) {
-                const chunkData = {
-                  content,
-                  done: false,
+                const finalChunk = {
+                  content: '',
+                  done: true,
                   metadata: {
                     provider: 'rag-openai',
-                    model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
-                    hasContext: retrievalContext.length > 100,
-                    chunkCount
+                    corrected: true,
+                    chunkCount,
+                    finalLength: safeResponse.length
                   }
                 };
                 
                 controller.enqueue(
-                  encoder.encode(`data: ${JSON.stringify(chunkData)}\n\n`)
+                  encoder.encode(`data: ${JSON.stringify(finalChunk)}\n\n`)
                 );
+                
+                return; // Exit early
               }
+              
+              // Send the chunk if no hallucination detected
+              const chunkData = {
+                content,
+                done: false,
+                metadata: {
+                  provider: 'rag-openai',
+                  chunkNumber: chunkCount
+                }
+              };
+              
+              controller.enqueue(
+                encoder.encode(`data: ${JSON.stringify(chunkData)}\n\n`)
+              );
             }
           }
           
-          // Validate the complete response for hallucinations and calculate confidence
-          const validation = ResponseValidator.validateRAGResponse(fullResponse, retrievalContext);
-          const contextValidation = validateAgainstContext(fullResponse, retrievalContext);
-          
-          // Calculate overall confidence score
-          let confidenceScore = validation.confidence;
-          if (!contextValidation.isValid) {
-            confidenceScore = Math.min(confidenceScore, 0.3); // Heavily penalize context mismatches
-          }
-          
-          // Additional confidence adjustments
-          if (containsPotentialHallucination(fullResponse, retrievalContext)) {
-            confidenceScore = Math.min(confidenceScore, 0.2); // Very low confidence for potential hallucinations
-          }
-          
-          if (!validation.isValid || !contextValidation.isValid) {
-            console.warn('RAG response validation issues:', {
-              validationWarnings: validation.warnings,
-              contextIssues: contextValidation.issues,
-              finalConfidence: confidenceScore
-            });
+          // Final validation of complete response
+          if (!hallucinationDetected) {
+            const validation = ResponseValidator.validateResponse(fullResponse, retrievalContext);
             
-            // Send validation warning as a separate chunk
-            const warningMessage = contextValidation.issues.length > 0 
-              ? `\n\n⚠️ **Accuracy Notice**: Some information in the response above could not be verified against our source documents. For the most reliable information, please contact Abu Rayyan Academy directly.`
-              : `\n\n⚠️ **Verification Notice**: Please verify specific details with Abu Rayyan Academy directly for the most current information.`;
-            
-            const validationData = {
-              content: warningMessage,
-              done: false,
-              metadata: {
-                provider: 'rag-openai',
-                validation: {
-                  confidence: confidenceScore,
-                  warnings: validation.warnings,
-                  contextIssues: contextValidation.issues,
-                  requiresVerification: true
+            if (!validation.isValid) {
+              console.warn('Response failed final validation:', validation.warnings);
+              
+              const safeResponse = `I apologize, but I need to provide a more accurate response. Based on the available documents, I cannot provide the specific details you requested. For complete and verified information, please contact the institution directly.`;
+              
+              const correctionData = {
+                content: safeResponse,
+                done: false,
+                metadata: {
+                  provider: 'rag-openai',
+                  corrected: true,
+                  reason: 'Failed final validation',
+                  warnings: validation.warnings
                 }
-              }
-            };
-            controller.enqueue(
-              encoder.encode(`data: ${JSON.stringify(validationData)}\n\n`)
-            );
+              };
+              
+              controller.enqueue(
+                encoder.encode(`data: ${JSON.stringify(correctionData)}\n\n`)
+              );
+            }
           }
           
-          // Send final chunk with completion metadata
+          // Send final chunk
           const finalChunk = {
             content: '',
             done: true,
             metadata: {
               provider: 'rag-openai',
-              model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
-              totalChunks: chunkCount,
-              responseLength: fullResponse.length,
-              contextUsed: retrievalContext.length > 100,
-              contextLength: retrievalContext.length,
-              confidenceScore: confidenceScore,
-              riskAssessment: {
-                isHighRisk: isHighRisk,
-                isOrganizational: isOrgQuery,
-                hallucinationDetected: hallucinationDetected
-              },
-              validation: (!validation.isValid || !contextValidation.isValid) ? {
-                confidence: confidenceScore,
-                warnings: validation.warnings,
-                contextIssues: contextValidation.issues
-              } : undefined
+              chunkCount,
+              finalLength: fullResponse.length,
+              hallucinationDetected
             }
           };
           
