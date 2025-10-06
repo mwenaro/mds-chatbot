@@ -71,11 +71,61 @@ export class ResponseValidator {
       confidence -= 0.2;
     }
 
+    // Check for specific names that might be hallucinated
+    if (this.containsSpecificNames(response)) {
+      warnings.push('Response contains specific names that may not be accurate');
+      suggestedFixes.push('Verify all personal names and titles with authoritative sources');
+      confidence -= 0.3;
+    }
+
+    // Check for detailed organizational structure
+    if (this.containsDetailedStructure(response)) {
+      warnings.push('Response provides detailed organizational information that should be verified');
+      suggestedFixes.push('Confirm organizational details from official sources');
+      confidence -= 0.25;
+    }
+
     return {
       isValid: confidence > (opts.strictMode ? 0.7 : 0.5),
       confidence,
       warnings,
       suggestedFixes: suggestedFixes.length > 0 ? suggestedFixes : undefined,
+    };
+  }
+
+  /**
+   * Specialized validation for RAG responses that should be context-only
+   */
+  static validateRAGResponse(
+    response: string,
+    context: string,
+    options: ValidationOptions = {}
+  ): ValidationResult {
+    const baseValidation = this.validateResponse(response, context, { ...options, strictMode: true });
+    
+    // Additional checks for RAG responses
+    const ragWarnings = [...(baseValidation.warnings || [])];
+    const ragFixes = [...(baseValidation.suggestedFixes || [])];
+    let ragConfidence = baseValidation.confidence;
+
+    // Check if response contains information likely not in context
+    if (this.containsSpecificNames(response) && !this.contextContainsNames(context, response)) {
+      ragWarnings.push('Response contains specific names not found in provided context');
+      ragFixes.push('Only provide names explicitly mentioned in source documents');
+      ragConfidence -= 0.4;
+    }
+
+    if (this.containsDetailedStructure(response) && !this.contextContainsStructure(context)) {
+      ragWarnings.push('Response provides organizational details not supported by context');
+      ragFixes.push('Limit response to information explicitly provided in context documents');
+      ragConfidence -= 0.5;
+    }
+
+    return {
+      isValid: ragConfidence > 0.7, // Stricter threshold for RAG
+      confidence: ragConfidence,
+      warnings: ragWarnings,
+      suggestedFixes: ragFixes.length > 0 ? ragFixes : undefined,
     };
   }
 
@@ -145,6 +195,61 @@ export class ResponseValidator {
     return suspiciousPatterns.some(pattern => pattern.test(text));
   }
 
+  private static containsSpecificNames(text: string): boolean {
+    // Detect patterns that suggest specific names are being listed
+    const namePatterns = [
+      // Pattern: Title + Full name (e.g., "Sheikh Abdinasir Abdulle", "Mrs. Salatha Mohammed")
+      /\b(Mr\.|Mrs\.|Ms\.|Dr\.|Prof\.|Sheikh|Imam|Director|Manager|Principal)\s+[A-Z][a-z]+\s+[A-Z][a-z]+/g,
+      // Pattern: Multiple specific names in a list
+      /:\s*[A-Z][a-z]+\s+[A-Z][a-z]+(\s+[A-Z][a-z]+)?\s*\n.*:\s*[A-Z][a-z]+\s+[A-Z][a-z]+/g,
+      // Pattern: Detailed staff listings with positions
+      /\b(Head|Director|Manager|Coordinator|Teacher|Principal)\s+of\s+\w+:\s*[A-Z][a-z]+/g,
+    ];
+    return namePatterns.some(pattern => pattern.test(text));
+  }
+
+  private static containsDetailedStructure(text: string): boolean {
+    // Detect overly detailed organizational structure that might be fabricated
+    const structurePatterns = [
+      // Multiple department listings with specific heads (3 or more)
+      /(\w+\s+(Program|Department|Section|Unit|Studies):\s*[A-Z][a-z]+.*\n){3,}/g,
+      // List-style department assignments
+      /(Islamic Studies|Tahfidh|ICT|Formal School|Secondary|Primary|Guidance|Counselling):\s+[A-Z]/g,
+      // Detailed hierarchical information
+      /\b(reports to|supervised by|oversees|manages|leads)\s+[A-Z][a-z]+\s+[A-Z][a-z]+/gi,
+      // Specific organizational charts or structures
+      /\b(organizational chart|reporting structure|management hierarchy)/gi,
+      // "Here are the heads of departments" followed by listings
+      /here are the (heads of departments|department heads|staff members):\s*\n/gi,
+    ];
+    return structurePatterns.some(pattern => pattern.test(text));
+  }
+
+  // Helper methods for RAG validation
+  private static contextContainsNames(context: string, response: string): boolean {
+    // Extract names from response and check if they exist in context
+    const nameMatches = response.match(/\b(Mr\.|Mrs\.|Ms\.|Dr\.|Prof\.|Sheikh|Imam|Director|Manager|Principal)\s+[A-Z][a-z]+\s+[A-Z][a-z]+/g);
+    if (!nameMatches) return true; // No names to validate
+    
+    return nameMatches.every(name => {
+      // Remove title and check if the actual name appears in context
+      const cleanName = name.replace(/^(Mr\.|Mrs\.|Ms\.|Dr\.|Prof\.|Sheikh|Imam|Director|Manager|Principal)\s+/, '');
+      return context.toLowerCase().includes(cleanName.toLowerCase());
+    });
+  }
+
+  private static contextContainsStructure(context: string): boolean {
+    // Check if context actually contains organizational structure information
+    const structureIndicators = [
+      'head of', 'department', 'director', 'manager', 'coordinator',
+      'reports to', 'supervised by', 'organizational', 'staff list'
+    ];
+    
+    return structureIndicators.some(indicator => 
+      context.toLowerCase().includes(indicator)
+    );
+  }
+
   // Utility method to clean response content
   static sanitizeResponse(response: string): string {
     // Remove potentially hallucinated URLs
@@ -162,5 +267,31 @@ export class ResponseValidator {
     });
 
     return cleaned;
+  }
+
+  /**
+   * Generate a safe alternative response when hallucination is detected
+   */
+  static generateSafeResponse(originalQuery: string, detectedIssues: string[]): string {
+    const issueTypes = {
+      names: detectedIssues.some(issue => issue.includes('names')),
+      structure: detectedIssues.some(issue => issue.includes('organizational')),
+      dates: detectedIssues.some(issue => issue.includes('dates')),
+      numbers: detectedIssues.some(issue => issue.includes('numbers')),
+    };
+
+    let safeResponse = "I don't have that specific information available in my current knowledge base.";
+
+    if (issueTypes.names || issueTypes.structure) {
+      safeResponse = "I don't have detailed information about specific staff members or organizational structure. ";
+    } else if (issueTypes.dates) {
+      safeResponse = "I don't have access to current date-specific information. ";
+    } else if (issueTypes.numbers) {
+      safeResponse = "I don't have access to specific statistics or numerical data. ";
+    }
+
+    safeResponse += " For accurate and up-to-date information, I recommend contacting Abu Rayyan Academy directly. They'll be able to provide you with the most current and accurate details.";
+
+    return safeResponse;
   }
 }
