@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Groq from 'groq-sdk';
+import { AIConfigurationService } from '@/lib/services/ai-configuration';
+import { SystemPromptsService } from '@/lib/services/system-prompts';
+import { ResponseValidator } from '@/lib/services/response-validator';
 
 export async function POST(req: NextRequest) {
   try {
-    const { message } = await req.json();
+    const { message, useAntiHallucination = true } = await req.json();
 
     if (!message) {
       return NextResponse.json({ error: 'Message is required' }, { status: 400 });
@@ -37,24 +40,46 @@ export async function POST(req: NextRequest) {
           let completion;
           let lastError;
           
+          // Detect domain and get appropriate system prompt
+          const domain = SystemPromptsService.detectDomain(message);
+          const systemPrompt = SystemPromptsService.getDomainPrompt(domain);
+          
+          // Add uncertainty context if needed
+          const enhancedMessage = SystemPromptsService.addUncertaintyContext(message);
+          
+          // Get anti-hallucination configuration
+          const useCase = useAntiHallucination ? 'factual' : 'balanced';
+          const groqConfig = AIConfigurationService.getGroqConfig(useCase);
+          
+          console.log('Using Groq config:', {
+            temperature: groqConfig.temperature,
+            max_tokens: groqConfig.max_tokens,
+            domain: domain
+          });
+          
           for (const model of models) {
             try {
               completion = await groq.chat.completions.create({
                 messages: [
                   {
                     role: 'system',
-                    content: 'You are a helpful AI assistant. Be conversational, helpful, and provide accurate information.'
+                    content: systemPrompt
                   },
                   {
                     role: 'user',
-                    content: message,
+                    content: enhancedMessage,
                   },
                 ],
                 model: model,
-                temperature: 0.7,
-                max_tokens: 1000,
+                temperature: groqConfig.temperature,
+                max_tokens: groqConfig.max_tokens,
+                top_p: groqConfig.top_p,
+                frequency_penalty: groqConfig.frequency_penalty,
+                presence_penalty: groqConfig.presence_penalty,
                 stream: true,
               });
+              
+              console.log(`Successfully using model: ${model}`);
               break; // Success, exit the loop
             } catch (modelError) {
               lastError = modelError;
@@ -67,10 +92,14 @@ export async function POST(req: NextRequest) {
             throw lastError || new Error('All models failed');
           }
 
+          let fullResponse = '';
+
           for await (const chunk of completion) {
             const content = chunk.choices[0]?.delta?.content;
             
             if (content) {
+              fullResponse += content;
+              
               const data = JSON.stringify({
                 content: content,
                 done: false
@@ -80,10 +109,33 @@ export async function POST(req: NextRequest) {
             }
           }
 
+          // Validate the complete response
+          const validation = ResponseValidator.validateResponse(fullResponse);
+          if (!validation.isValid) {
+            console.warn('Groq response validation warnings:', validation.warnings);
+            
+            // Send validation warning as a separate chunk
+            const validationData = JSON.stringify({
+              content: '\n\n*⚠️ Note: Please verify the information provided above, especially any specific dates, numbers, or URLs mentioned.*',
+              done: false,
+              validation: {
+                confidence: validation.confidence,
+                warnings: validation.warnings
+              }
+            });
+            controller.enqueue(
+              encoder.encode(`data: ${validationData}\n\n`)
+            );
+          }
+
           // Send completion signal
           const finalData = JSON.stringify({
             content: '',
-            done: true
+            done: true,
+            validation: validation.isValid ? undefined : {
+              confidence: validation.confidence,
+              warnings: validation.warnings
+            }
           });
           controller.enqueue(encoder.encode(`data: ${finalData}\n\n`));
           controller.close();
